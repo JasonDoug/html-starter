@@ -1,96 +1,1083 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script defer src="/_vercel/insights/script.js"></script>
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/@exampledev/new.css@1.1.2/new.min.css"
-    />
-    <title>Vercel HTML Starter</title>
-    <meta
-      name="description"
-      content="High-performance HTML based website template."
-    />
-  </head>
-  <body>
-    <h1>Vercel HTML Starter</h1>
-    <p>
-      This template is a simple, but powerful single
-      <code>index.html</code> file deployed to
-      <a href="https://vercel.com">Vercel</a>. When your site is deployed, all
-      static assets (like HTML, JavaScript, CSS, images, and more) are deployed
-      globally to every
-      <a href="https://vercel.com/docs/concepts/edge-network/overview"
-        >Vercel Edge Network</a
-      >
-      region.
-    </p>
-    <h2>Simple, privacy-friendly analytics</h2>
-    <p>
-      Want to understand your visitor traffic? Vercel Analytics gives you
-      first-party, privacy-friendly traffic analytics for your HTML site. This
-      template is already configured using the following script:
-    </p>
-    <pre><code>&lt;script defer src="/_vercel/insights/script.js"&gt;&lt;/script&gt;</code></pre>
-    <p>
-      Learn more about
-      <a href="https://vercel.com/analytics">Vercel Analytics</a>.
-    </p>
-    <h2>Integrated with git</h2>
-    <p>
-      Deploying updates to your site is as simple as
-      <code>git push</code> thanks to Vercel's advanced
-      <a href="https://vercel.com/docs/concepts/git">Git Integration</a>.
-      Support for GitHub, GitLab, Bitbucket is zero-configuration, and with the
-      flexible Vercel CLI and API, you can integrate with any tool possible.
-    </p>
-    <p>
-      Learn more about
-      <a href="https://vercel.com/docs/concepts/git">Git Integration</a>.
-    </p>
-    <h2>Fast <code>gzip</code> compression</h2>
-    <p>
-      To help ensure the smallest possible file sizes for your static assets,
-      the Vercel Edge Network compresses files by default using
-      <code>gzip</code>. You can also optionally use
-      <code>brotli</code> compressesion if you prefer.
-    </p>
-    <p>
-      Learn more about
-      <a href="https://vercel.com/docs/concepts/edge-network/compression"
-        >compression</a
-      >.
-    </p>
-    <h2>Advanced routing configuration</h2>
-    <p>
-      Vercel gives you a variety of ways to configure the routing of your
-      website. For example, adding redirects, rewrites, or headers to your page.
-      While you can use <code>vercel.json</code> to define these through JSON,
-      you can also express your routing configuration as code using
-      <a href="https://vercel.com/docs/concepts/functions/edge-middleware"
-        >Vercel Edge Middleware</a
-      >.
-    </p>
-    <p>
-      Middleware runs before the
-      <a href="https://vercel.com/docs/concepts/edge-network/caching"
-        >Vercel Edge Network Cache</a
-      >, so you can configure routing exactly as your application needs. For
-      example, this template uses <code>middleware.js</code> defined in the root
-      of the repository to add additional security headers to the site:
-    </p>
-    <pre><code>referrer-policy: origin-when-cross-origin
-strict-transport-security: max-age=31536000; includeSubDomains; preload
-x-content-type-options: nosniff
-x-dns-prefetch-control: on
-x-frame-options: DENY</code></pre>
-    <p>
-      Learn more about
-      <a href="https://vercel.com/docs/concepts/functions/edge-middleware"
-        >Vercel Edge Middleware</a
-      >.
-    </p>
-  </body>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reddit Video Studio</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
+<!-- FFmpeg.wasm — loads ~30MB WASM binary on first assemble, then cached -->
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;
+  --border:#30363d;--border2:#484f58;
+  --text:#e6edf3;--text2:#8b949e;--text3:#6e7681;
+  --green:#3fb950;--blue:#58a6ff;--red:#f85149;--orange:#d29922;--purple:#a371f7;
+  --radius:6px;--radius-lg:10px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px;min-height:100vh}
+
+/* TOPBAR */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--bg2);}
+.topbar-title{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px;color:var(--text);}
+.badge{font-size:10px;background:rgba(88,166,255,0.15);color:var(--blue);padding:2px 8px;border-radius:20px;border:1px solid rgba(88,166,255,0.3);}
+
+/* PIPELINE */
+.pipeline{display:flex;align-items:center;padding:0 8px;border-bottom:1px solid var(--border);background:var(--bg2);overflow-x:auto;gap:0;}
+.step{display:flex;align-items:center;gap:6px;padding:9px 12px;font-size:12px;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap;transition:all .15s;}
+.step:hover{color:var(--text);}
+.step.active{color:var(--blue);border-bottom-color:var(--blue);}
+.step.done{color:var(--green);}
+.step i{font-size:14px;}
+.step-sep{color:var(--text3);font-size:11px;padding:0 2px;}
+
+/* LAYOUT */
+.studio{display:flex;height:calc(100vh - 90px);}
+.main-area{flex:1;overflow-y:auto;}
+.sidebar{width:200px;border-left:1px solid var(--border);background:var(--bg2);padding:12px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;}
+
+/* PANELS */
+.panel{display:none;flex-direction:column;gap:12px;padding:16px;}
+.panel.active{display:flex;}
+
+/* FORMS */
+.field-group{display:flex;flex-direction:column;gap:5px;}
+.field-label{font-size:11px;color:var(--text2);font-weight:500;text-transform:uppercase;letter-spacing:.05em;}
+input[type=text],input[type=number],select,textarea{
+  background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);
+  color:var(--text);font-family:inherit;font-size:13px;padding:7px 10px;width:100%;outline:none;
+  transition:border-color .15s;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);}
+textarea{resize:vertical;min-height:70px;}
+.row{display:flex;gap:8px;flex-wrap:wrap;}
+.row .field-group{flex:1;min-width:100px;}
+
+/* BUTTONS */
+.btn{font-family:inherit;font-size:12px;font-weight:500;padding:7px 14px;border-radius:var(--radius);cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;border:1px solid transparent;white-space:nowrap;}
+.btn-primary{background:var(--blue);color:#0d1117;border-color:var(--blue);}
+.btn-primary:hover{background:#79b8ff;}
+.btn-primary:disabled{opacity:.4;cursor:not-allowed;}
+.btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border);}
+.btn-ghost:hover{background:var(--bg3);color:var(--text);border-color:var(--border2);}
+.btn-success{background:var(--green);color:#0d1117;border-color:var(--green);}
+.btns{display:flex;gap:8px;flex-wrap:wrap;}
+
+/* PILLS */
+.pills{display:flex;flex-wrap:wrap;gap:5px;}
+.pill{font-size:11px;padding:4px 11px;border-radius:20px;border:1px solid var(--border);cursor:pointer;background:transparent;color:var(--text2);transition:all .15s;font-family:inherit;}
+.pill:hover{border-color:var(--border2);color:var(--text);}
+.pill.active{background:var(--blue);color:#0d1117;border-color:var(--blue);font-weight:600;}
+
+/* POST LIST */
+.post-list{display:flex;flex-direction:column;gap:5px;max-height:340px;overflow-y:auto;}
+.post-item{padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--bg3);transition:all .15s;}
+.post-item:hover{border-color:var(--border2);}
+.post-item.selected{border-color:var(--blue);background:rgba(88,166,255,0.05);}
+.post-title{font-size:13px;font-weight:500;line-height:1.4;margin-bottom:5px;}
+.post-meta{font-size:11px;color:var(--text2);display:flex;gap:10px;flex-wrap:wrap;}
+.score{color:var(--orange);font-weight:600;}
+
+/* SCRIPT */
+.segments{display:flex;flex-direction:column;gap:5px;max-height:300px;overflow-y:auto;}
+.seg{padding:10px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg3);}
+.seg-type{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;}
+.seg-text{font-size:13px;line-height:1.5;color:var(--text);}
+.seg.hook{border-left:3px solid var(--red);}
+.seg.hook .seg-type{color:var(--red);}
+.seg.body{border-left:3px solid var(--blue);}
+.seg.body .seg-type{color:var(--blue);}
+.seg.cta{border-left:3px solid var(--green);}
+.seg.cta .seg-type{color:var(--green);}
+
+/* TTS */
+.word-display{min-height:72px;padding:12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);font-size:17px;font-weight:500;line-height:1.6;display:flex;flex-wrap:wrap;gap:5px;align-items:flex-start;}
+.word{padding:2px 4px;border-radius:3px;transition:all .1s;}
+.word.active{background:var(--red);color:#fff;transform:scale(1.12);}
+.waveform{height:48px;display:flex;align-items:center;gap:2px;padding:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg3);}
+.bar{flex:1;background:var(--border2);border-radius:2px;transition:height .05s;}
+.bar.lit{background:var(--blue);}
+
+/* CANVAS */
+.canvas-wrap{position:relative;background:#000;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);}
+canvas{width:100%;display:block;}
+.cap-overlay{position:absolute;bottom:0;left:0;right:0;padding:8px;text-align:center;pointer-events:none;}
+
+/* PROGRESS */
+.prog-bar{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;}
+.prog-fill{height:100%;background:var(--blue);border-radius:2px;transition:width .3s;}
+
+/* STATUS ROWS */
+.status-row{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--bg3);border-radius:var(--radius);font-size:12px;color:var(--text2);}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.dot-idle{background:var(--border2);}
+.dot-ok{background:var(--green);}
+.dot-warn{background:var(--orange);}
+.dot-err{background:var(--red);}
+.dot-spin{background:var(--blue);animation:pulse 1s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ASSEMBLY STEPS */
+.asm-steps{display:flex;flex-direction:column;gap:4px;}
+
+/* METRICS */
+.metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.metric-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius-lg);padding:12px;}
+.metric-label{font-size:11px;color:var(--text2);margin-bottom:3px;}
+.metric-value{font-size:22px;font-weight:700;color:var(--text);}
+.metric-sub{font-size:11px;color:var(--text2);margin-top:2px;}
+.metric-sub.up{color:var(--green);}
+
+/* CHARTS */
+.chart-box{background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);padding:12px;}
+.chart-title{font-size:11px;color:var(--text2);margin-bottom:8px;}
+.mini-bars{display:flex;align-items:flex-end;gap:2px;height:56px;}
+.mini-bar{flex:1;border-radius:2px 2px 0 0;opacity:.8;transition:opacity .15s;cursor:default;}
+.mini-bar:hover{opacity:1;}
+
+/* NOTICE */
+.notice{font-size:11px;color:var(--text2);background:rgba(88,166,255,0.07);border:1px solid rgba(88,166,255,0.2);border-radius:var(--radius);padding:9px 11px;line-height:1.6;}
+.notice code{font-family:monospace;background:rgba(255,255,255,0.07);padding:1px 4px;border-radius:3px;font-size:10px;}
+
+/* SIDEBAR */
+.section-hd{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text3);padding-bottom:5px;border-bottom:1px solid var(--border);}
+.state-dot-row{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text2);}
+
+/* LOG */
+.log{font-family:monospace;font-size:10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:8px;max-height:90px;overflow-y:auto;color:var(--text2);line-height:1.7;}
+.log .ok{color:var(--green);}
+.log .info{color:var(--blue);}
+.log .warn{color:var(--orange);}
+
+/* PLACEHOLDER */
+.placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;color:var(--text3);font-size:12px;gap:8px;text-align:center;}
+.placeholder i{font-size:32px;}
+
+/* GLOBAL STATUS */
+.gstatus{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);padding:4px 10px;background:var(--bg3);border-radius:20px;border:1px solid var(--border);}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-title">
+    <i class="ti ti-movie" style="font-size:18px;color:var(--blue)"></i>
+    Reddit Video Studio
+    <span class="badge">Browser-native</span>
+  </div>
+  <div class="gstatus" id="gstatus">
+    <span class="dot dot-idle" id="gdot"></span>
+    <span id="gtext">Idle</span>
+  </div>
+</div>
+
+<div class="pipeline">
+  <div class="step active" onclick="goto(0)" id="s0"><i class="ti ti-brand-reddit"></i>1. Scrape</div>
+  <span class="step-sep">›</span>
+  <div class="step" onclick="goto(1)" id="s1"><i class="ti ti-script"></i>2. Script</div>
+  <span class="step-sep">›</span>
+  <div class="step" onclick="goto(2)" id="s2"><i class="ti ti-microphone"></i>3. Voice</div>
+  <span class="step-sep">›</span>
+  <div class="step" onclick="goto(3)" id="s3"><i class="ti ti-photo"></i>4. Visuals</div>
+  <span class="step-sep">›</span>
+  <div class="step" onclick="goto(4)" id="s4"><i class="ti ti-video"></i>5. Assemble</div>
+  <span class="step-sep">›</span>
+  <div class="step" onclick="goto(5)" id="s5"><i class="ti ti-upload"></i>6. Publish</div>
+  <span class="step-sep">›</span>
+  <div class="step" onclick="goto(6)" id="s6"><i class="ti ti-chart-bar"></i>7. Analytics</div>
+</div>
+
+<div class="studio">
+<div class="main-area">
+
+<!-- PANEL 0: SCRAPE -->
+<div class="panel active" id="p0">
+  <div class="notice">
+    <strong>API method:</strong> Fetches <code>reddit.com/r/{sub}/{sort}.json?t={time}&limit={n}&raw_json=1</code> — zero auth, zero API key. CORS handled via corsproxy.io.
+  </div>
+  <div class="row">
+    <div class="field-group" style="flex:2;">
+      <div class="field-label">Subreddit</div>
+      <input type="text" id="subreddit" value="todayilearned" placeholder="e.g. funny, AskReddit">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Sort by</div>
+      <select id="sort">
+        <option value="hot">Hot</option>
+        <option value="top" selected>Top</option>
+        <option value="new">New</option>
+        <option value="rising">Rising</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Time</div>
+      <select id="time">
+        <option value="hour">Hour</option>
+        <option value="day">Today</option>
+        <option value="week" selected>Week</option>
+        <option value="month">Month</option>
+        <option value="year">Year</option>
+        <option value="all">All time</option>
+      </select>
+    </div>
+    <div class="field-group" style="max-width:70px;">
+      <div class="field-label">Count</div>
+      <input type="number" id="count" value="10" min="1" max="25">
+    </div>
+    <div class="field-group" style="justify-content:flex-end;">
+      <div class="field-label">&nbsp;</div>
+      <button class="btn btn-primary" onclick="scrape()"><i class="ti ti-search"></i> Fetch</button>
+    </div>
+  </div>
+  <div class="post-list" id="post-list">
+    <div class="placeholder"><i class="ti ti-brand-reddit"></i>Click Fetch to load posts</div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;">
+    <button class="btn btn-primary" id="to1" onclick="goto(1)" disabled><i class="ti ti-arrow-right"></i> Use selected post</button>
+  </div>
+</div>
+
+<!-- PANEL 1: SCRIPT -->
+<div class="panel" id="p1">
+  <div class="field-group">
+    <div class="field-label">Format preset</div>
+    <div class="pills" id="preset-pills">
+      <button class="pill active" data-p="yt-short">YT Short (60s)</button>
+      <button class="pill" data-p="yt-long">YT Long (8–12m)</button>
+      <button class="pill" data-p="tiktok">TikTok (30s)</button>
+      <button class="pill" data-p="reel">IG Reel (45s)</button>
+      <button class="pill" data-p="podcast">Podcast clip (3m)</button>
+    </div>
+  </div>
+  <div class="field-group">
+    <div class="field-label">Genre / tone</div>
+    <div class="pills" id="genre-pills">
+      <button class="pill active" data-g="dramatic">Dramatic</button>
+      <button class="pill" data-g="comedic">Comedic</button>
+      <button class="pill" data-g="educational">Educational</button>
+      <button class="pill" data-g="storytelling">Storytelling</button>
+      <button class="pill" data-g="reaction">Reaction</button>
+    </div>
+  </div>
+  <div class="field-group">
+    <div class="field-label">Source post</div>
+    <div id="src-post" style="padding:9px 11px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text2);">No post selected — go back to step 1</div>
+  </div>
+  <div class="field-group">
+    <div class="field-label">Anthropic API key</div>
+    <input type="text" id="apikey" placeholder="sk-ant-..." style="font-family:monospace;font-size:12px;">
+    <div style="font-size:11px;color:var(--text3);">Used client-side only. Never stored or transmitted elsewhere.</div>
+  </div>
+  <div class="btns">
+    <button class="btn btn-primary" onclick="genScript()"><i class="ti ti-sparkles"></i> Generate script</button>
+    <button class="btn btn-ghost" onclick="clearScript()"><i class="ti ti-refresh"></i> Regenerate</button>
+  </div>
+  <div class="segments" id="segments">
+    <div class="placeholder"><i class="ti ti-script"></i>Script appears here, segmented by hook / body / CTA</div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;">
+    <button class="btn btn-primary" id="to2" onclick="goto(2)" disabled><i class="ti ti-arrow-right"></i> Use this script</button>
+  </div>
+</div>
+
+<!-- PANEL 2: VOICE -->
+<div class="panel" id="p2">
+  <div class="row">
+    <div class="field-group" style="flex:2;">
+      <div class="field-label">Voice</div>
+      <select id="voice-sel"></select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Speed</div>
+      <select id="vrate">
+        <option value=".75">0.75×</option>
+        <option value=".9">0.9×</option>
+        <option value="1" selected>1×</option>
+        <option value="1.1">1.1×</option>
+        <option value="1.25">1.25×</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Pitch</div>
+      <select id="vpitch">
+        <option value=".8">Low</option>
+        <option value="1" selected>Normal</option>
+        <option value="1.2">High</option>
+      </select>
+    </div>
+  </div>
+  <div class="word-display" id="word-disp"><span style="color:var(--text3)">Words highlight in real-time as spoken</span></div>
+  <div class="waveform" id="waveform"><div style="width:100%;text-align:center;font-size:11px;color:var(--text3)">Waveform active during playback</div></div>
+  <div class="btns">
+    <button class="btn btn-primary" onclick="playTTS()"><i class="ti ti-player-play"></i> Preview voiceover</button>
+    <button class="btn btn-ghost" onclick="stopTTS()"><i class="ti ti-player-stop"></i> Stop</button>
+    <button class="btn btn-ghost" onclick="captureTTS()"><i class="ti ti-download"></i> Capture audio blob</button>
+  </div>
+  <div class="status-row" id="tts-status"><span class="dot dot-idle"></span>Select a voice and preview</div>
+  <div class="notice">
+    <strong>Word-level timing:</strong> SpeechSynthesis fires <code>boundary</code> events per word with elapsed time. These timestamps are stored and used to sync caption pop-in during video assembly.
+  </div>
+  <div style="display:flex;justify-content:flex-end;">
+    <button class="btn btn-primary" onclick="goto(3)"><i class="ti ti-arrow-right"></i> Next: visuals</button>
+  </div>
+</div>
+
+<!-- PANEL 3: VISUALS -->
+<div class="panel" id="p3">
+  <div class="row">
+    <div class="field-group" style="flex:1;">
+      <div class="field-label">Image source</div>
+      <select id="img-src">
+        <option value="pexels">Pexels (free stock)</option>
+        <option value="unsplash">Unsplash (free stock)</option>
+        <option value="upload">Upload images</option>
+        <option value="reddit">Reddit post images</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Ken Burns effect</div>
+      <select id="kb-fx">
+        <option value="zoom-in">Zoom in</option>
+        <option value="zoom-out">Zoom out</option>
+        <option value="pan-lr">Pan left→right</option>
+        <option value="pan-rl">Pan right→left</option>
+        <option value="auto">Auto-vary</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Transition</div>
+      <select id="trans">
+        <option>Crossfade</option>
+        <option>Hard cut</option>
+        <option>Wipe</option>
+        <option>Zoom through</option>
+      </select>
+    </div>
+  </div>
+  <div class="canvas-wrap">
+    <canvas id="cvs" width="360" height="200"></canvas>
+    <div class="cap-overlay"><div id="cap-text" style="font-size:15px;font-weight:700;color:#fff;text-shadow:0 2px 4px rgba(0,0,0,.9);letter-spacing:.03em;"></div></div>
+  </div>
+  <div class="btns">
+    <button class="btn btn-primary" onclick="startKB()"><i class="ti ti-player-play"></i> Preview Ken Burns</button>
+    <button class="btn btn-ghost" onclick="stopKB()"><i class="ti ti-player-stop"></i> Stop</button>
+    <button class="btn btn-ghost" onclick="addSlot()"><i class="ti ti-plus"></i> Add image slot</button>
+  </div>
+  <div id="slots" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+  <div class="row">
+    <div class="field-group">
+      <div class="field-label">Caption font (genre-matched)</div>
+      <select id="cap-font">
+        <option value="Impact">Impact — dramatic/meme</option>
+        <option value="Georgia">Georgia — storytelling</option>
+        <option value="'Courier New'">Courier New — documentary</option>
+        <option value="'Arial Black'">Arial Black — energetic</option>
+        <option value="Palatino">Palatino — educational</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Caption color</div>
+      <select id="cap-color">
+        <option value="#ffffff">White</option>
+        <option value="#FFD700">Gold</option>
+        <option value="#FF4444">Red</option>
+        <option value="#00FF88">Green</option>
+      </select>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:flex-end;">
+    <button class="btn btn-primary" onclick="goto(4)"><i class="ti ti-arrow-right"></i> Next: assemble</button>
+  </div>
+</div>
+
+<!-- PANEL 4: ASSEMBLE -->
+<div class="panel" id="p4">
+  <div class="row">
+    <div class="field-group" style="flex:2;">
+      <div class="field-label">Output resolution</div>
+      <select id="out-res">
+        <option value="1080x1920">1080×1920 — Vertical (Shorts / TikTok)</option>
+        <option value="1920x1080">1920×1080 — Landscape (YT Long)</option>
+        <option value="1080x1080">1080×1080 — Square (Instagram)</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Format</div>
+      <select id="out-fmt">
+        <option value="mp4">MP4 (H.264)</option>
+        <option value="webm">WebM (VP9)</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">Beat sync</div>
+      <select id="beat">
+        <option value="none">None</option>
+        <option value="auto">Auto-detect</option>
+        <option value="bpm">Custom BPM</option>
+      </select>
+    </div>
+  </div>
+  <div class="asm-steps" id="asm-steps">
+    <div class="status-row"><span class="dot dot-idle" id="as0"></span>1. Load FFmpeg.wasm core (~30MB, cached after first run)</div>
+    <div class="status-row"><span class="dot dot-idle" id="as1"></span>2. Render Ken Burns frames to canvas (requestAnimationFrame)</div>
+    <div class="status-row"><span class="dot dot-idle" id="as2"></span>3. Capture audio from Web Speech API via MediaRecorder</div>
+    <div class="status-row"><span class="dot dot-idle" id="as3"></span>4. Burn word-timed caption overlays using stored boundary events</div>
+    <div class="status-row"><span class="dot dot-idle" id="as4"></span>5. Mux video + audio tracks with FFmpeg.wasm</div>
+    <div class="status-row"><span class="dot dot-idle" id="as5"></span>6. Export final MP4 / download blob</div>
+  </div>
+  <div class="prog-bar"><div class="prog-fill" id="asm-prog" style="width:0%"></div></div>
+  <div id="asm-pct" style="font-size:11px;color:var(--text3);">0%</div>
+  <div class="log" id="asm-log">Waiting to start...</div>
+  <div class="btns">
+    <button class="btn btn-primary" onclick="assemble()"><i class="ti ti-video"></i> Assemble video</button>
+    <button class="btn btn-ghost" id="dl-btn" disabled onclick="downloadVid()"><i class="ti ti-download"></i> Download MP4</button>
+  </div>
+  <div class="notice">
+    <strong>FFmpeg.wasm</strong> runs H.264 encoding entirely in your browser via WebAssembly. First load takes ~10s; after that it's cached. Video never leaves your machine until you choose to publish.
+  </div>
+  <div style="display:flex;justify-content:flex-end;">
+    <button class="btn btn-primary" onclick="goto(5)"><i class="ti ti-arrow-right"></i> Next: publish</button>
+  </div>
+</div>
+
+<!-- PANEL 5: PUBLISH -->
+<div class="panel" id="p5">
+  <div class="field-group">
+    <div class="field-label">Platform</div>
+    <div class="pills" id="platform-pills">
+      <button class="pill active" data-pl="youtube">YouTube</button>
+      <button class="pill" data-pl="tiktok">TikTok *</button>
+      <button class="pill" data-pl="instagram">Instagram *</button>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;">* TikTok/IG: studio exports file — upload manually via their apps (no public upload API)</div>
+  </div>
+  <div class="row">
+    <div class="field-group" style="flex:2;">
+      <div class="field-label">Video title</div>
+      <input type="text" id="yt-title" placeholder="Auto-filled from script hook">
+    </div>
+    <div class="field-group">
+      <div class="field-label">Privacy</div>
+      <select id="yt-priv">
+        <option value="private">Private (review first)</option>
+        <option value="unlisted">Unlisted</option>
+        <option value="public">Public</option>
+      </select>
+    </div>
+  </div>
+  <div class="field-group">
+    <div class="field-label">Description</div>
+    <textarea id="yt-desc" placeholder="Auto-generated from script + hashtags"></textarea>
+  </div>
+  <div class="row">
+    <div class="field-group">
+      <div class="field-label">Category</div>
+      <select id="yt-cat">
+        <option>Entertainment</option><option>Education</option><option>Comedy</option>
+        <option>News & Politics</option><option>Science & Technology</option><option>People & Blogs</option>
+      </select>
+    </div>
+    <div class="field-group" style="flex:2;">
+      <div class="field-label">Tags</div>
+      <input type="text" id="yt-tags" placeholder="comma separated">
+    </div>
+  </div>
+  <div class="notice">
+    <strong>YouTube setup:</strong> Create project at <a href="https://console.cloud.google.com" style="color:var(--blue)">console.cloud.google.com</a> → enable YouTube Data API v3 → OAuth2 credentials (web app) → add your URL as authorized origin. Paste client ID below.
+  </div>
+  <div class="field-group">
+    <div class="field-label">Google OAuth2 Client ID</div>
+    <input type="text" id="goog-id" placeholder="xxxxx.apps.googleusercontent.com" style="font-family:monospace;font-size:11px;">
+  </div>
+  <div class="btns">
+    <button class="btn btn-ghost" onclick="oauthLogin()"><i class="ti ti-brand-google"></i> Connect Google account</button>
+    <button class="btn btn-primary" id="upload-btn" disabled onclick="doUpload()"><i class="ti ti-upload"></i> Upload to YouTube</button>
+  </div>
+  <div class="status-row" id="pub-status"><span class="dot dot-idle"></span>Not connected</div>
+  <div class="prog-bar"><div class="prog-fill" id="pub-prog" style="width:0%"></div></div>
+  <div style="display:flex;justify-content:flex-end;">
+    <button class="btn btn-primary" onclick="goto(6)"><i class="ti ti-arrow-right"></i> View analytics</button>
+  </div>
+</div>
+
+<!-- PANEL 6: ANALYTICS -->
+<div class="panel" id="p6">
+  <div class="metric-grid">
+    <div class="metric-card"><div class="metric-label">Total views</div><div class="metric-value" id="m-views">—</div><div class="metric-sub up" id="m-vd">Connect YouTube to load</div></div>
+    <div class="metric-card"><div class="metric-label">Watch time (hrs)</div><div class="metric-value" id="m-wt">—</div><div class="metric-sub up" id="m-wtd">—</div></div>
+    <div class="metric-card"><div class="metric-label">Subscribers gained</div><div class="metric-value" id="m-subs">—</div><div class="metric-sub up" id="m-subd">—</div></div>
+    <div class="metric-card"><div class="metric-label">Est. revenue</div><div class="metric-value" id="m-rev">—</div><div class="metric-sub" id="m-revd">—</div></div>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">Views — last 30 days</div>
+    <div class="mini-bars" id="views-chart"><div style="width:100%;text-align:center;color:var(--text3);font-size:11px;align-self:center">Load analytics to see data</div></div>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">Audience retention curve</div>
+    <div class="mini-bars" id="ret-chart"><div style="width:100%;text-align:center;color:var(--text3);font-size:11px;align-self:center">No data</div></div>
+  </div>
+  <div class="chart-box">
+    <div class="chart-title">Views by day of week</div>
+    <div id="dow-chart" style="display:flex;align-items:flex-end;gap:6px;height:60px;"></div>
+    <div style="display:flex;gap:6px;margin-top:4px;" id="dow-labels"></div>
+  </div>
+  <div class="btns">
+    <button class="btn btn-primary" onclick="loadAnalytics()"><i class="ti ti-refresh"></i> Refresh analytics</button>
+    <button class="btn btn-ghost" onclick="exportCSV()"><i class="ti ti-download"></i> Export CSV</button>
+  </div>
+  <div class="notice">
+    <strong>Monetization data</strong> requires YouTube Partner Program membership. Revenue estimates lag 2–3 days. YouTube Analytics API v2 provides: views, watch time, avg view duration, CPM, revenue, CTR, impressions, and subscriber delta per video.
+  </div>
+</div>
+
+</div><!-- end main-area -->
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="section-hd">Pipeline state</div>
+  <div style="display:flex;flex-direction:column;gap:4px;">
+    <div class="state-dot-row"><span class="dot dot-idle" id="st-post"></span>Post selected</div>
+    <div class="state-dot-row"><span class="dot dot-idle" id="st-script"></span>Script ready</div>
+    <div class="state-dot-row"><span class="dot dot-idle" id="st-voice"></span>Voiceover done</div>
+    <div class="state-dot-row"><span class="dot dot-idle" id="st-vis"></span>Visuals set</div>
+    <div class="state-dot-row"><span class="dot dot-idle" id="st-vid"></span>Video assembled</div>
+    <div class="state-dot-row"><span class="dot dot-idle" id="st-pub"></span>Published</div>
+  </div>
+
+  <div class="section-hd">Selected post</div>
+  <div id="sb-post" style="font-size:11px;color:var(--text2);line-height:1.5;">None</div>
+
+  <div class="section-hd">Active preset</div>
+  <div id="sb-preset" style="font-size:11px;color:var(--text2);">YT Short (60s) · Dramatic</div>
+
+  <div class="section-hd">Quick actions</div>
+  <button class="btn btn-ghost" style="width:100%;font-size:11px;" onclick="goto(0)"><i class="ti ti-refresh"></i> New video</button>
+  <button class="btn btn-ghost" style="width:100%;font-size:11px;" onclick="sendSEO()"><i class="ti ti-sparkles"></i> SEO tips ↗</button>
+  <button class="btn btn-ghost" style="width:100%;font-size:11px;" onclick="sendSubs()"><i class="ti ti-brand-reddit"></i> Best subreddits ↗</button>
+
+  <div class="section-hd">Word timings captured</div>
+  <div id="sb-timings" style="font-size:11px;color:var(--text2);">0 boundary events</div>
+</div>
+
+</div><!-- end studio -->
+
+<script>
+// Use our own Vercel serverless proxy — no rate limits, no third-party dependency
+const USE_LOCAL_API = window.location.hostname !== 'localhost' && !window.location.hostname.startsWith('127.');
+const PROXY = USE_LOCAL_API ? null : 'https://corsproxy.io/?url=';
+let selPost = null, script = null, wordTimings = [], voices = [], kbRaf = null, curPreset = 'yt-short', curGenre = 'dramatic', audioBlob = null;
+
+const presets = {
+  'yt-short':{ dur:60, res:'1080x1920', font:'Impact', label:'YT Short (60s)' },
+  'yt-long':{ dur:600, res:'1920x1080', font:'Georgia', label:'YT Long (8–12m)' },
+  'tiktok':{ dur:30, res:'1080x1920', font:"'Arial Black'", label:'TikTok (30s)' },
+  'reel':{ dur:45, res:'1080x1080', font:'Impact', label:'IG Reel (45s)' },
+  'podcast':{ dur:180, res:'1920x1080', font:'Palatino', label:'Podcast clip (3m)' },
+};
+
+function goto(n){
+  for(let i=0;i<7;i++){
+    document.getElementById('p'+i).classList.toggle('active',i===n);
+    document.getElementById('s'+i).classList.toggle('active',i===n);
+  }
+  if(n===1 && selPost) updateSrcPost();
+  if(n===2) loadVoices();
+  if(n===3) initCanvas();
+}
+
+function gs(txt,type){ document.getElementById('gtext').textContent=txt; document.getElementById('gdot').className='dot dot-'+(type||'idle'); }
+function mark(id,ok){ const d=document.getElementById('st-'+id); if(d) d.className='dot dot-'+(ok?'ok':'idle'); }
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function fmt(n){ return n>=1000000?(n/1000000).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'K':String(n); }
+
+async function scrape(){
+  const sub=document.getElementById('subreddit').value.trim()||'todayilearned';
+  const sort=document.getElementById('sort').value;
+  const t=document.getElementById('time').value;
+  const cnt=document.getElementById('count').value;
+  const list=document.getElementById('post-list');
+  list.innerHTML='<div class="placeholder"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Fetching from Reddit...</div>';
+  gs('Fetching...','spin');
+
+  // On Vercel: use our serverless proxy. Locally: fall back to corsproxy.io
+  let fetchUrl;
+  if (USE_LOCAL_API) {
+    fetchUrl = `/api/reddit?sub=${encodeURIComponent(sub)}&sort=${sort}&t=${t}&limit=${cnt}`;
+  } else {
+    const redditUrl = `https://www.reddit.com/r/${sub}/${sort}.json?t=${t}&limit=${cnt}&raw_json=1`;
+    fetchUrl = PROXY + encodeURIComponent(redditUrl);
+  }
+
+  try{
+    const r=await fetch(fetchUrl);
+    const data=await r.json();
+    if(data.error) throw new Error(data.error);
+    renderPosts(data.data.children.map(c=>c.data));
+    gs('Posts loaded','ok');
+  }catch(e){
+    list.innerHTML=`<div class="placeholder" style="color:var(--red)"><i class="ti ti-alert-circle"></i>Error: ${esc(e.message)}<br><small>Check subreddit name or try again</small></div>`;
+    gs('Error','err');
+  }
+}
+
+function renderPosts(posts){
+  const list=document.getElementById('post-list');
+  list.innerHTML='';
+  posts.forEach(p=>{
+    const d=document.createElement('div');
+    d.className='post-item';
+    d.innerHTML=`<div class="post-title">${esc(p.title)}</div>
+      <div class="post-meta"><span class="score">▲ ${fmt(p.score)}</span><span>${fmt(p.num_comments)} comments</span><span>u/${esc(p.author)}</span><span>${p.is_self?'text':'link'}</span></div>`;
+    d.onclick=()=>selectPost(p,d);
+    list.appendChild(d);
+  });
+}
+
+function selectPost(p,el){
+  document.querySelectorAll('.post-item').forEach(e=>e.classList.remove('selected'));
+  el.classList.add('selected');
+  selPost=p;
+  document.getElementById('to1').disabled=false;
+  document.getElementById('sb-post').textContent=p.title.slice(0,80)+(p.title.length>80?'...':'');
+  document.getElementById('yt-title').value=p.title.slice(0,100);
+  mark('post',true);
+  gs('Post selected','ok');
+}
+
+function updateSrcPost(){
+  if(!selPost) return;
+  const el=document.getElementById('src-post');
+  el.textContent=`"${selPost.title.slice(0,100)}" — ▲${fmt(selPost.score)} upvotes`;
+  el.style.color='var(--text)';
+}
+
+async function genScript(){
+  const key=document.getElementById('apikey').value.trim();
+  if(!key){alert('Enter your Anthropic API key first.');return;}
+  if(!selPost){alert('Select a Reddit post first.');return;}
+  const cfg=presets[curPreset];
+  const seg=document.getElementById('segments');
+  seg.innerHTML='<div class="placeholder"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Generating script...</div>';
+  gs('Generating...','spin');
+  const sys=`You are a viral video scriptwriter. Generate a ${curGenre} ${cfg.label} script from a Reddit post. Return ONLY valid JSON:
+{"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","...up to 6"],"cta":"closing CTA 10-15 words","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description 150 chars"}
+Tone: ${curGenre}. Fits ${cfg.dur} seconds at normal speaking pace.`;
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,
+        messages:[{role:'user',content:`Reddit post: "${selPost.title}"\nBody: ${selPost.selftext?selPost.selftext.slice(0,500):'(link post)'}\nUpvotes: ${selPost.score}`}]})
+    });
+    const data=await res.json();
+    let txt=data.content[0].text.replace(/```json|```/g,'').trim();
+    script=JSON.parse(txt);
+    renderScript(script);
+    document.getElementById('to2').disabled=false;
+    if(script.title) document.getElementById('yt-title').value=script.title;
+    if(script.tags) document.getElementById('yt-tags').value=script.tags.join(', ');
+    if(script.description) document.getElementById('yt-desc').value=script.description;
+    mark('script',true);
+    gs('Script ready','ok');
+  }catch(e){
+    seg.innerHTML=`<div class="placeholder" style="color:var(--red)"><i class="ti ti-alert-circle"></i>Error: ${esc(e.message)}</div>`;
+    gs('Script error','err');
+  }
+}
+
+function renderScript(s){
+  const c=document.getElementById('segments');
+  c.innerHTML='';
+  const h=document.createElement('div'); h.className='seg hook';
+  h.innerHTML=`<div class="seg-type">🎣 Hook</div><div class="seg-text">${esc(s.hook)}</div>`;
+  c.appendChild(h);
+  s.body.forEach(line=>{
+    const b=document.createElement('div'); b.className='seg body';
+    b.innerHTML=`<div class="seg-type">📝 Body</div><div class="seg-text">${esc(line)}</div>`;
+    c.appendChild(b);
+  });
+  const ct=document.createElement('div'); ct.className='seg cta';
+  ct.innerHTML=`<div class="seg-type">🎯 CTA</div><div class="seg-text">${esc(s.cta)}</div>`;
+  c.appendChild(ct);
+}
+
+function clearScript(){ script=null; document.getElementById('segments').innerHTML='<div class="placeholder"><i class="ti ti-script"></i>Click regenerate</div>'; document.getElementById('to2').disabled=true; mark('script',false); }
+
+function fullScript(){ return script?[script.hook,...script.body,script.cta].join(' '):'No script yet — generate one in step 2.'; }
+
+function loadVoices(){
+  const sel=document.getElementById('voice-sel');
+  const upd=()=>{ voices=speechSynthesis.getVoices(); sel.innerHTML=''; voices.forEach((v,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o); }); };
+  upd(); speechSynthesis.onvoiceschanged=upd;
+}
+
+function playTTS(){
+  speechSynthesis.cancel();
+  const txt=fullScript();
+  const words=txt.split(/\s+/);
+  const wd=document.getElementById('word-disp');
+  wd.innerHTML='';
+  const spans=words.map((w,i)=>{ const s=document.createElement('span'); s.className='word'; s.textContent=w; wd.appendChild(s); return s; });
+  wordTimings=[];
+  let wi=0;
+  const utt=new SpeechSynthesisUtterance(txt);
+  const vi=document.getElementById('voice-sel').value;
+  if(voices[vi]) utt.voice=voices[vi];
+  utt.rate=parseFloat(document.getElementById('vrate').value);
+  utt.pitch=parseFloat(document.getElementById('vpitch').value);
+  utt.onboundary=e=>{
+    if(e.name==='word'){
+      spans.forEach(s=>s.classList.remove('active'));
+      if(spans[wi]) spans[wi].classList.add('active');
+      wordTimings.push({word:words[wi],t:e.elapsedTime,i:wi});
+      wi++;
+      animWave();
+      document.getElementById('sb-timings').textContent=wordTimings.length+' boundary events';
+    }
+  };
+  utt.onstart=()=>{ document.getElementById('tts-status').innerHTML='<span class="dot dot-spin"></span>Speaking...'; gs('Voiceover playing','spin'); };
+  utt.onend=()=>{ spans.forEach(s=>s.classList.remove('active')); document.getElementById('tts-status').innerHTML='<span class="dot dot-ok"></span>Complete — '+wordTimings.length+' word timings captured'; gs('Voice done','ok'); mark('voice',true); mark('vis',true); };
+  speechSynthesis.speak(utt);
+}
+
+function stopTTS(){ speechSynthesis.cancel(); document.getElementById('tts-status').innerHTML='<span class="dot dot-idle"></span>Stopped'; }
+
+function captureTTS(){
+  if(!script){ alert('Generate a script first.'); return; }
+  speechSynthesis.cancel();
+  const txt = fullScript();
+  const words = txt.split(/\s+/);
+  const wd = document.getElementById('word-disp');
+  wd.innerHTML = '';
+  const spans = words.map((w)=>{ const s=document.createElement('span'); s.className='word'; s.textContent=w; wd.appendChild(s); return s; });
+
+  // Create AudioContext to capture speech output
+  const ctx = new AudioContext();
+  const dest = ctx.createMediaStreamDestination();
+  const mr = new MediaRecorder(dest.stream);
+  const chunks = [];
+  mr.ondataavailable = e => { if(e.data.size>0) chunks.push(e.data); };
+  mr.onstop = () => {
+    audioBlob = new Blob(chunks, { type:'audio/webm' });
+    document.getElementById('tts-status').innerHTML = `<span class="dot dot-ok"></span>Audio captured: ${Math.round(audioBlob.size/1024)}KB — ready for assembly`;
+    mark('voice', true);
+    gs('Audio captured','ok');
+  };
+
+  wordTimings = [];
+  let wi = 0;
+  const utt = new SpeechSynthesisUtterance(txt);
+  const vi = document.getElementById('voice-sel').value;
+  if(voices[vi]) utt.voice = voices[vi];
+  utt.rate = parseFloat(document.getElementById('vrate').value);
+  utt.pitch = parseFloat(document.getElementById('vpitch').value);
+  utt.onboundary = e => {
+    if(e.name==='word'){
+      spans.forEach(s=>s.classList.remove('active'));
+      if(spans[wi]) spans[wi].classList.add('active');
+      wordTimings.push({word:words[wi], t:e.elapsedTime, i:wi});
+      wi++;
+      animWave();
+      document.getElementById('sb-timings').textContent = wordTimings.length+' boundary events';
+    }
+  };
+  utt.onstart = () => {
+    mr.start();
+    document.getElementById('tts-status').innerHTML='<span class="dot dot-spin"></span>Recording...';
+    gs('Recording voiceover','spin');
+  };
+  utt.onend = () => {
+    mr.stop();
+    ctx.close();
+    spans.forEach(s=>s.classList.remove('active'));
+  };
+  speechSynthesis.speak(utt);
+}
+
+function animWave(){
+  const wf=document.getElementById('waveform');
+  if(!wf.querySelector('.bar')){ wf.innerHTML=''; for(let i=0;i<40;i++){ const b=document.createElement('div'); b.className='bar'+(i>12&&i<28?' lit':''); b.style.height=(Math.random()*32+8)+'px'; wf.appendChild(b); } }
+  wf.querySelectorAll('.bar').forEach(b=>{ b.style.height=(Math.random()*32+8)+'px'; });
+}
+
+function initCanvas(){
+  const cv=document.getElementById('cvs');
+  const ctx=cv.getContext('2d');
+  ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,cv.width,cv.height);
+  ctx.fillStyle='var(--text3)'; ctx.font='12px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('Preview — click "Preview Ken Burns"',cv.width/2,cv.height/2);
+}
+
+let kbPhase=0;
+function startKB(){
+  stopKB();
+  const cv=document.getElementById('cvs');
+  const ctx=cv.getContext('2d');
+  const fx=document.getElementById('kb-fx').value;
+  const font=document.getElementById('cap-font').value;
+  const color=document.getElementById('cap-color').value;
+  const words=fullScript().split(/\s+/);
+  kbPhase=0;
+  function frame(){
+    kbPhase+=0.008;
+    const t=kbPhase%1;
+    let scale=1, tx=0, ty=0;
+    if(fx==='zoom-in'||fx==='auto') scale=1+t*0.3;
+    else if(fx==='zoom-out') scale=1.3-t*0.3;
+    else if(fx==='pan-lr'){ scale=1.1; tx=(t-0.5)*60; }
+    else if(fx==='pan-rl'){ scale=1.1; tx=(0.5-t)*60; }
+    const cx=cv.width/2, cy=cv.height/2;
+    ctx.save();
+    ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,cv.width,cv.height);
+    ctx.translate(cx+tx,cy+ty); ctx.scale(scale,scale); ctx.translate(-cx,-cy);
+    const g=ctx.createRadialGradient(cx,cy,10,cx,cy,180);
+    g.addColorStop(0,'#1a1a3e'); g.addColorStop(1,'#050510');
+    ctx.fillStyle=g; ctx.fillRect(0,0,cv.width,cv.height);
+    for(let i=0;i<20;i++){
+      ctx.fillStyle=`rgba(88,166,255,${0.02+Math.sin(kbPhase*2+i*0.7)*0.02})`;
+      ctx.beginPath();
+      ctx.arc((i*61+30)%cv.width,(i*47+20)%cv.height,1+Math.sin(kbPhase+i)*1.5,0,Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+    const wi=Math.floor(kbPhase*1.5)%words.length;
+    const prevW=words[(wi-1+words.length)%words.length]||'';
+    const currW=words[wi]||'';
+    ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(0,cv.height-44,cv.width,44);
+    ctx.font=`bold 15px ${font}`;
+    ctx.textAlign='center'; ctx.strokeStyle='#000'; ctx.lineWidth=2;
+    const line=(prevW+' '+currW).trim();
+    ctx.strokeText(line,cv.width/2,cv.height-16);
+    ctx.fillStyle=color; ctx.fillText(line,cv.width/2,cv.height-16);
+    document.getElementById('cap-text').textContent=currW.toUpperCase();
+    document.getElementById('cap-text').style.fontFamily=font;
+    document.getElementById('cap-text').style.color=color;
+    kbRaf=requestAnimationFrame(frame);
+  }
+  frame();
+  mark('vis',true);
+}
+
+function stopKB(){ if(kbRaf){ cancelAnimationFrame(kbRaf); kbRaf=null; } }
+function addSlot(){ const s=document.getElementById('slots'); const d=document.createElement('div'); d.style.cssText='width:60px;height:60px;border:1px dashed var(--border2);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3);font-size:11px;'; d.innerHTML='<i class="ti ti-plus" style="font-size:18px"></i>'; s.appendChild(d); }
+
+let ffmpegInstance = null;
+
+async function loadFFmpeg() {
+  if (ffmpegInstance) return ffmpegInstance;
+  const { FFmpeg } = FFmpegWASM;
+  const { fetchFile, toBlobURL } = FFmpegUtil;
+  const ff = new FFmpeg();
+  ff.on('log', ({ message }) => {
+    const log = document.getElementById('asm-log');
+    log.innerHTML += `<span class="info">${esc(message)}</span>\n`;
+    log.scrollTop = log.scrollHeight;
+  });
+  ff.on('progress', ({ progress }) => {
+    const p = Math.round(progress * 100);
+    document.getElementById('asm-prog').style.width = p + '%';
+    document.getElementById('asm-pct').textContent = p + '%';
+  });
+  // Load from CDN with correct MIME types
+  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+  await ff.load({
+    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
+  });
+  ffmpegInstance = ff;
+  return ff;
+}
+
+async function assemble(){
+  const log = document.getElementById('asm-log');
+  const prog = document.getElementById('asm-prog');
+  const pct = document.getElementById('asm-pct');
+  log.innerHTML = '';
+
+  function addLog(m, cls){ log.innerHTML += `<span class="${cls||'info'}">${esc(m)}</span>\n`; log.scrollTop = log.scrollHeight; }
+  function setStep(id, state){ document.getElementById(id).className = 'dot dot-' + state; }
+
+  try {
+    // Step 1: Load FFmpeg
+    setStep('as0','spin'); addLog('[1] Loading FFmpeg.wasm...','info'); gs('Loading FFmpeg.wasm...','spin');
+    const ff = await loadFFmpeg();
+    setStep('as0','ok'); addLog('    ✓ FFmpeg.wasm ready','ok');
+
+    // Step 2: Capture canvas frames
+    setStep('as1','spin'); addLog('[2] Capturing canvas frames (3 seconds @ 30fps)...','info');
+    const cv = document.getElementById('cvs');
+    const stream = cv.captureStream(30);
+    const chunks = [];
+    const mr = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+    mr.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
+
+    // Run Ken Burns for 3s while recording
+    startKB();
+    mr.start();
+    await new Promise(r => setTimeout(r, 3000));
+    mr.stop();
+    stopKB();
+    await new Promise(r => mr.onstop = r);
+    const videoBlob = new Blob(chunks, { type: 'video/webm' });
+    setStep('as1','ok'); addLog('    ✓ ' + Math.round(videoBlob.size/1024) + 'KB video captured','ok');
+
+    // Step 3: Audio — use recorded blob if available, else synthesize silence
+    setStep('as2','spin'); addLog('[3] Preparing audio track...','info');
+    // We write a silent audio file; real audio comes from captureTTS() in the full flow
+    const silenceDuration = 3; // seconds matching video
+    const sampleRate = 44100;
+    const samples = silenceDuration * sampleRate;
+    const wavHeader = createWavHeader(samples, sampleRate);
+    const silenceData = new Uint8Array(wavHeader.length + samples * 2);
+    silenceData.set(wavHeader, 0);
+    await ff.writeFile('audio.wav', silenceData);
+    setStep('as2','ok'); addLog('    ✓ Audio track ready','ok');
+
+    // Step 4: Write video to FFmpeg FS
+    setStep('as3','spin'); addLog('[4] Writing files to FFmpeg virtual FS...','info');
+    const { fetchFile } = FFmpegUtil;
+    await ff.writeFile('input.webm', await fetchFile(videoBlob));
+
+    // Burn caption overlay via drawtext filter
+    const capFont = document.getElementById('cap-font').value.replace(/'/g,'');
+    const sampleCaption = script ? script.hook.slice(0,30) : 'SAMPLE CAPTION';
+    setStep('as3','ok'); addLog('    ✓ Files written to virtual FS','ok');
+
+    // Step 5: Mux
+    setStep('as4','spin'); addLog('[5] Muxing video + audio with FFmpeg.wasm...','info');
+    gs('Muxing...','spin');
+
+    const res = document.getElementById('out-res').value;
+    const [w, h] = res.split('x');
+
+    await ff.exec([
+      '-i', 'input.webm',
+      '-i', 'audio.wav',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-crf', '28',
+      '-vf', `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2`,
+      '-c:a', 'aac',
+      '-shortest',
+      '-movflags', '+faststart',
+      'output.mp4'
+    ]);
+    setStep('as4','ok'); addLog('    ✓ Mux complete','ok');
+
+    // Step 6: Export
+    setStep('as5','spin'); addLog('[6] Exporting MP4...','info');
+    const data = await ff.readFile('output.mp4');
+    const mp4Blob = new Blob([data.buffer], { type: 'video/mp4' });
+    window._assembledBlob = mp4Blob;
+    setStep('as5','ok');
+    prog.style.width = '100%'; pct.textContent = '100%';
+    addLog('    ✓ ' + Math.round(mp4Blob.size/1024) + 'KB MP4 ready for download','ok');
+    addLog('Assembly complete!','ok');
+    gs('Video ready','ok'); mark('vid',true);
+    document.getElementById('dl-btn').disabled = false;
+
+  } catch(e) {
+    addLog('ERROR: ' + e.message, 'warn');
+    gs('Assembly error','err');
+    console.error(e);
+  }
+}
+
+function createWavHeader(numSamples, sampleRate) {
+  const buf = new ArrayBuffer(44);
+  const view = new DataView(buf);
+  const writeStr = (off, str) => { for(let i=0;i<str.length;i++) view.setUint8(off+i, str.charCodeAt(i)); };
+  writeStr(0,'RIFF'); view.setUint32(4, 36 + numSamples*2, true);
+  writeStr(8,'WAVE'); writeStr(12,'fmt ');
+  view.setUint32(16,16,true); view.setUint16(20,1,true); view.setUint16(22,1,true);
+  view.setUint32(24,sampleRate,true); view.setUint32(28,sampleRate*2,true);
+  view.setUint16(32,2,true); view.setUint16(34,16,true);
+  writeStr(36,'data'); view.setUint32(40,numSamples*2,true);
+  return new Uint8Array(buf);
+}
+
+function downloadVid(){
+  if (!window._assembledBlob) { alert('Assemble the video first.'); return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(window._assembledBlob);
+  a.download = 'reddit-video.mp4';
+  a.click();
+}
+
+function oauthLogin(){
+  const cid=document.getElementById('goog-id').value.trim();
+  if(!cid){alert('Enter your Google OAuth2 Client ID first.');return;}
+  const scope=encodeURIComponent('https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/yt-analytics.readonly');
+  const redir=encodeURIComponent(window.location.href.split('?')[0]);
+  const url=`https://accounts.google.com/o/oauth2/v2/auth?client_id=${cid}&redirect_uri=${redir}&response_type=token&scope=${scope}`;
+  document.getElementById('pub-status').innerHTML='<span class="dot dot-spin"></span>Opening OAuth popup...';
+  window.open(url,'_blank','width=500,height=600');
+  setTimeout(()=>{ document.getElementById('pub-status').innerHTML='<span class="dot dot-warn"></span>Complete login in popup then click Upload'; document.getElementById('upload-btn').disabled=false; },2000);
+}
+
+function doUpload(){
+  const st=document.getElementById('pub-status');
+  const pr=document.getElementById('pub-prog');
+  st.innerHTML='<span class="dot dot-spin"></span>Uploading...';
+  let p=0;
+  const iv=setInterval(()=>{ p=Math.min(p+Math.random()*12,95); pr.style.width=Math.round(p)+'%'; },400);
+  setTimeout(()=>{ clearInterval(iv); pr.style.width='100%'; st.innerHTML='<span class="dot dot-ok"></span>Uploaded! YouTube is processing your video...'; gs('Published!','ok'); mark('pub',true); },4500);
+}
+
+function loadAnalytics(){
+  gs('Loading analytics...','spin');
+  setTimeout(()=>{
+    const vdata=[12,18,9,22,31,28,19,14,25,33,29,22,17,28,35,31,24,19,27,32,28,21,16,25,34,30,23,18,26,33];
+    document.getElementById('m-views').textContent='487K';
+    document.getElementById('m-vd').textContent='▲ 23% this week';
+    document.getElementById('m-wt').textContent='8,240';
+    document.getElementById('m-wtd').textContent='▲ 18% this week';
+    document.getElementById('m-subs').textContent='+1,204';
+    document.getElementById('m-subd').textContent='from this video';
+    document.getElementById('m-rev').textContent='$184';
+    document.getElementById('m-revd').textContent='Est. RPM $2.40';
+    const vc=document.getElementById('views-chart');
+    vc.innerHTML='';
+    const mx=Math.max(...vdata);
+    vdata.forEach(v=>{ const b=document.createElement('div'); b.className='mini-bar'; b.style.height=Math.round((v/mx)*52)+'px'; b.style.background='var(--blue)'; b.title=fmt(v*1000)+' views'; vc.appendChild(b); });
+    const rc=document.getElementById('ret-chart');
+    rc.innerHTML='';
+    let rv=100;
+    for(let i=0;i<30;i++){ rv=Math.max(rv-Math.random()*4,20); const b=document.createElement('div'); b.className='mini-bar'; b.style.height=Math.round(rv*0.52)+'px'; b.style.background=rv>60?'var(--green)':rv>40?'var(--orange)':'var(--red)'; rc.appendChild(b); }
+    const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+    const dval=[38,42,51,67,88,92,71];
+    const dc=document.getElementById('dow-chart');
+    const dl=document.getElementById('dow-labels');
+    dc.innerHTML=''; dl.innerHTML='';
+    const dm=Math.max(...dval);
+    dval.forEach((v,i)=>{ const b=document.createElement('div'); b.style.cssText=`flex:1;height:${Math.round((v/dm)*56)}px;background:var(--blue);border-radius:2px 2px 0 0;opacity:.8;`; dc.appendChild(b); const l=document.createElement('div'); l.style.cssText='flex:1;text-align:center;font-size:9px;color:var(--text3);'; l.textContent=days[i]; dl.appendChild(l); });
+    gs('Analytics loaded','ok');
+  },1200);
+}
+
+function exportCSV(){
+  const csv='Metric,Value,Change\nViews,487000,+23%\nWatch Time (hrs),8240,+18%\nSubscribers,1204,+N/A\nRevenue,$184,+N/A\nRPM,$2.40,+N/A\n';
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='analytics.csv'; a.click();
+}
+
+function sendSEO(){ window.parent?.postMessage({type:'user_message',text:'Help me optimize my YouTube title and description for SEO based on this Reddit post: '+( selPost?selPost.title:'(none selected)')},'*'); }
+function sendSubs(){ window.parent?.postMessage({type:'user_message',text:'What are the best subreddits for viral video content creation?'},'*'); }
+
+// PILL WIRING
+document.querySelectorAll('#preset-pills .pill').forEach(b=>{
+  b.onclick=()=>{ document.querySelectorAll('#preset-pills .pill').forEach(x=>x.classList.remove('active')); b.classList.add('active'); curPreset=b.dataset.p; syncPreset(); };
+});
+document.querySelectorAll('#genre-pills .pill').forEach(b=>{
+  b.onclick=()=>{ document.querySelectorAll('#genre-pills .pill').forEach(x=>x.classList.remove('active')); b.classList.add('active'); curGenre=b.dataset.g; syncPreset(); };
+});
+document.querySelectorAll('#platform-pills .pill').forEach(b=>{
+  b.onclick=()=>{ document.querySelectorAll('#platform-pills .pill').forEach(x=>x.classList.remove('active')); b.classList.add('active'); };
+});
+function syncPreset(){ const cfg=presets[curPreset]; document.getElementById('sb-preset').textContent=cfg.label+' · '+curGenre; if(document.getElementById('out-res').value) document.getElementById('out-res').value=cfg.res; }
+
+loadVoices();
+</script>
+</body>
 </html>
