@@ -555,7 +555,7 @@ canvas{width:100%;display:block;}
   <div class="section-hd">Quick actions</div>
   <button class="btn btn-ghost" style="width:100%;font-size:11px;" onclick="goto(0)"><i class="ti ti-refresh"></i> New video</button>
   <button class="btn btn-ghost" style="width:100%;font-size:11px;" onclick="sendSEO()"><i class="ti ti-sparkles"></i> SEO tips ↗</button>
-  <button class="btn btn-ghost" style="width:100%;font-size:11px;" onclick="sendSubs()"><i class="ti ti-brand-reddit"></i> Best subreddits ↗</button>
+  <button class="btn btn-ghost" style="width:100%;font-size:11px;" onclick="sendSubs()"><i class="ti ti-news"></i> Content ideas ↗</button>
 
   <div class="section-hd">Word timings captured</div>
   <div id="sb-timings" style="font-size:11px;color:var(--text2);">0 boundary events</div>
@@ -564,9 +564,7 @@ canvas{width:100%;display:block;}
 </div><!-- end studio -->
 
 <script>
-// Use our own Vercel serverless proxy — no rate limits, no third-party dependency
-const USE_LOCAL_API = window.location.hostname !== 'localhost' && !window.location.hostname.startsWith('127.');
-const PROXY = USE_LOCAL_API ? null : 'https://corsproxy.io/?url=';
+// All fetches go through /api/sources — works on Vercel and localhost alike
 let selPost = null, script = null, wordTimings = [], voices = [], kbRaf = null, curPreset = 'yt-short', curGenre = 'dramatic', audioBlob = null;
 
 const presets = {
@@ -592,32 +590,37 @@ function mark(id,ok){ const d=document.getElementById('st-'+id); if(d) d.classNa
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmt(n){ return n>=1000000?(n/1000000).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'K':String(n); }
 
+function updateSourceUI(){
+  const src=document.getElementById('content-source').value;
+  const lbl=document.getElementById('query-label');
+  const inp=document.getElementById('query-input');
+  if(src==='hn'){ lbl.textContent='Filter (optional)'; inp.placeholder='e.g. AI, climate, space'; }
+  else if(src==='guardian'){ lbl.textContent='Section'; inp.placeholder='e.g. technology, science, culture'; inp.value=inp.value||'technology'; }
+  else { lbl.textContent='Subreddit'; inp.placeholder='e.g. todayilearned, worldnews'; inp.value=inp.value||'todayilearned'; }
+}
+
 async function scrape(){
-  const sub=document.getElementById('subreddit').value.trim()||'todayilearned';
+  const src=document.getElementById('content-source').value;
   const sort=document.getElementById('sort').value;
-  const t=document.getElementById('time').value;
   const cnt=document.getElementById('count').value;
+  const query=document.getElementById('query-input').value.trim();
   const list=document.getElementById('post-list');
-  list.innerHTML='<div class="placeholder"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Fetching from Reddit...</div>';
+  const srcNames={hn:'Hacker News',guardian:'The Guardian',reddit:'Reddit'};
+  list.innerHTML=`<div class="placeholder"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Fetching from ${srcNames[src]}...</div>`;
   gs('Fetching...','spin');
 
-  // On Vercel: use our serverless proxy. Locally: fall back to corsproxy.io
-  let fetchUrl;
-  if (USE_LOCAL_API) {
-    fetchUrl = `/api/reddit?sub=${encodeURIComponent(sub)}&sort=${sort}&t=${t}&limit=${cnt}`;
-  } else {
-    const redditUrl = `https://www.reddit.com/r/${sub}/${sort}.json?t=${t}&limit=${cnt}&raw_json=1`;
-    fetchUrl = PROXY + encodeURIComponent(redditUrl);
-  }
+  const params=new URLSearchParams({source:src,sort,limit:cnt});
+  if(query) params.set('query',query);
+  const fetchUrl=`/api/sources?${params}`;
 
   try{
     const r=await fetch(fetchUrl);
     const data=await r.json();
     if(data.error) throw new Error(data.error);
-    renderPosts(data.data.children.map(c=>c.data));
-    gs('Posts loaded','ok');
+    renderPosts(data.posts);
+    gs(`${data.count} posts loaded from ${srcNames[src]}`,'ok');
   }catch(e){
-    list.innerHTML=`<div class="placeholder" style="color:var(--red)"><i class="ti ti-alert-circle"></i>Error: ${esc(e.message)}<br><small>Check subreddit name or try again</small></div>`;
+    list.innerHTML=`<div class="placeholder" style="color:var(--red)"><i class="ti ti-alert-circle"></i>Error: ${esc(e.message)}<br><small>Try Hacker News — it requires no setup</small></div>`;
     gs('Error','err');
   }
 }
@@ -625,11 +628,22 @@ async function scrape(){
 function renderPosts(posts){
   const list=document.getElementById('post-list');
   list.innerHTML='';
+  if(!posts||!posts.length){
+    list.innerHTML='<div class="placeholder">No posts found — try a different topic or source</div>';
+    return;
+  }
+  const srcIcon={hn:'ti-brand-y-combinator',guardian:'ti-news',reddit:'ti-brand-reddit'};
   posts.forEach(p=>{
     const d=document.createElement('div');
     d.className='post-item';
+    const icon=srcIcon[p.source]||'ti-article';
     d.innerHTML=`<div class="post-title">${esc(p.title)}</div>
-      <div class="post-meta"><span class="score">▲ ${fmt(p.score)}</span><span>${fmt(p.num_comments)} comments</span><span>u/${esc(p.author)}</span><span>${p.is_self?'text':'link'}</span></div>`;
+      <div class="post-meta">
+        <span class="score">▲ ${fmt(p.score)}</span>
+        <span>${fmt(p.num_comments)} comments</span>
+        <span>${esc(p.author||'')}</span>
+        <span><i class="ti ${icon}" style="font-size:11px"></i> ${p.source||''}</span>
+      </div>`;
     d.onclick=()=>selectPost(p,d);
     list.appendChild(d);
   });
@@ -1063,7 +1077,7 @@ function exportCSV(){
 }
 
 function sendSEO(){ window.parent?.postMessage({type:'user_message',text:'Help me optimize my YouTube title and description for SEO based on this Reddit post: '+( selPost?selPost.title:'(none selected)')},'*'); }
-function sendSubs(){ window.parent?.postMessage({type:'user_message',text:'What are the best subreddits for viral video content creation?'},'*'); }
+function sendSubs(){ window.parent?.postMessage({type:'user_message',text:'What are the best topics and categories to use with Hacker News or The Guardian for viral short video content?'},'*'); }
 
 // PILL WIRING
 document.querySelectorAll('#preset-pills .pill').forEach(b=>{
