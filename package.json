@@ -1,7 +1,8 @@
 {
   "name": "reddit-video-studio",
   "version": "1.0.0",
-  "description": "Browser-native Reddit-to-video automation studio",
-  "engines": { "node": ">=18" },
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@vercel/edge": "^1.0.0"
+  }
 }
