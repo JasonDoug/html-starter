@@ -345,15 +345,24 @@ canvas{width:100%;display:block;}
 <!-- PANEL 3: VISUALS -->
 <div class="panel" id="p3">
   <div class="row">
-    <div class="field-group" style="flex:1;">
-      <div class="field-label">Image source</div>
-      <select id="img-src">
-        <option value="pexels">Pexels (free stock)</option>
-        <option value="unsplash">Unsplash (free stock)</option>
-        <option value="upload">Upload images</option>
-        <option value="reddit">Reddit post images</option>
-      </select>
+    <div class="field-group" style="flex:2;">
+      <div class="field-label">Image search query</div>
+      <input type="text" id="img-query" placeholder="Auto-filled from post topic — or type your own">
     </div>
+    <div class="field-group" style="max-width:70px;">
+      <div class="field-label">Count</div>
+      <input type="number" id="img-count" value="6" min="2" max="12">
+    </div>
+    <div class="field-group" style="justify-content:flex-end;">
+      <div class="field-label">&nbsp;</div>
+      <button class="btn btn-primary" onclick="fetchImages()"><i class="ti ti-photo-search"></i> Fetch images</button>
+    </div>
+  </div>
+  <div class="notice" id="pexels-notice">
+    Images via <strong>Unsplash</strong> (no key needed). For higher quality set <code>PEXELS_API_KEY</code> in Vercel env vars — free at <a href="https://www.pexels.com/api/" style="color:var(--blue)" target="_blank">pexels.com/api</a>.
+  </div>
+  <div id="img-grid" style="display:flex;gap:6px;flex-wrap:wrap;min-height:60px;"></div>
+  <div class="row">
     <div class="field-group">
       <div class="field-label">Ken Burns effect</div>
       <select id="kb-fx">
@@ -381,9 +390,7 @@ canvas{width:100%;display:block;}
   <div class="btns">
     <button class="btn btn-primary" onclick="startKB()"><i class="ti ti-player-play"></i> Preview Ken Burns</button>
     <button class="btn btn-ghost" onclick="stopKB()"><i class="ti ti-player-stop"></i> Stop</button>
-    <button class="btn btn-ghost" onclick="addSlot()"><i class="ti ti-plus"></i> Add image slot</button>
   </div>
-  <div id="slots" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
   <div class="row">
     <div class="field-group">
       <div class="field-label">Caption font (genre-matched)</div>
@@ -676,6 +683,11 @@ function selectPost(p,el){
   document.getElementById('yt-title').value=p.title.slice(0,100);
   mark('post',true);
   gs('Post selected','ok');
+  // Pre-populate image query from title
+  const stopWords=new Set(['the','a','an','is','are','was','were','in','on','at','to','for','of','and','or','but','i','my','we','they','you','it','this','that','with','from','how','why','what','when','who','has','have','had','its','be','been','can','will','just','about','after','before','so','than','then','as']);
+  const kws=p.title.toLowerCase().replace(/[^a-z0-9 ]/g,'').split(' ').filter(w=>w.length>3&&!stopWords.has(w));
+  const iq=document.getElementById('img-query');
+  if(iq) iq.value=kws.slice(0,3).join(' ');
 }
 
 function updateSrcPost(){
@@ -944,6 +956,75 @@ function animWave(){
   wf.querySelectorAll('.bar').forEach(b=>{ b.style.height=(Math.random()*32+8)+'px'; });
 }
 
+// ── Image fetching ────────────────────────────────────────────────────────────
+let loadedImages = []; // HTMLImageElement array for Ken Burns
+
+async function fetchImages(){
+  // Auto-derive query from post title if field is empty
+  let query = document.getElementById('img-query').value.trim();
+  if(!query && selPost){
+    // Extract 2-3 meaningful words from title
+    const stopWords = new Set(['the','a','an','is','are','was','were','in','on','at','to','for','of','and','or','but','i','my','we','they','you','it','this','that','with','from','how','why','what','when','who','has','have','had','its','be','been','can','will','just','about','after','before','so','than','then','as']);
+    const words = selPost.title.toLowerCase().replace(/[^a-z0-9 ]/g,'').split(' ').filter(w=>w.length>3 && !stopWords.has(w));
+    query = words.slice(0,3).join(' ') || 'technology nature';
+    document.getElementById('img-query').value = query;
+  }
+  const count = document.getElementById('img-count').value || 6;
+  const preset = document.getElementById('out-res')?.value || '1080x1920';
+  const orientation = preset.includes('1920x1080') ? 'landscape' : 'portrait';
+
+  const grid = document.getElementById('img-grid');
+  grid.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px;">Loading images...</div>';
+  gs('Fetching images...','spin');
+
+  try{
+    const r = await fetch(`/api/images?query=${encodeURIComponent(query)}&count=${count}&orientation=${orientation}`);
+    const data = await r.json();
+    if(data.error) throw new Error(data.error);
+
+    // Update notice with actual source
+    document.getElementById('pexels-notice').innerHTML = `Images from <strong>${data.source}</strong> — query: "${data.query}"`;
+
+    // Render thumbnails
+    grid.innerHTML = '';
+    loadedImages = [];
+    let loaded = 0;
+    data.photos.forEach((p,i) => {
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;cursor:pointer;border-radius:4px;overflow:hidden;border:2px solid transparent;';
+      const img = document.createElement('img');
+      img.src = p.thumb;
+      img.style.cssText = 'width:72px;height:96px;object-fit:cover;display:block;';
+      img.crossOrigin = 'anonymous';
+      wrap.title = `Photo by ${p.photographer}`;
+      wrap.onclick = () => {
+        wrap.style.borderColor = wrap.style.borderColor === 'var(--blue)' ? 'transparent' : 'var(--blue)';
+      };
+      wrap.appendChild(img);
+      grid.appendChild(wrap);
+
+      // Preload full-res into HTMLImageElement for canvas
+      const full = new Image();
+      full.crossOrigin = 'anonymous';
+      full.src = p.url;
+      full.onload = () => {
+        loadedImages[i] = full;
+        loaded++;
+        if(loaded === data.photos.length){
+          gs(`${loaded} images ready`,'ok');
+          mark('vis',true);
+        }
+      };
+      full.onerror = () => { loaded++; };
+    });
+
+    gs(`${data.photos.length} images fetched`,'ok');
+  }catch(e){
+    grid.innerHTML = `<div style="color:var(--red);font-size:12px;">${esc(e.message)}</div>`;
+    gs('Image fetch error','err');
+  }
+}
+
 function initCanvas(){
   const cv=document.getElementById('cvs');
   const ctx=cv.getContext('2d');
@@ -960,42 +1041,69 @@ function startKB(){
   const fx=document.getElementById('kb-fx').value;
   const font=document.getElementById('cap-font').value;
   const color=document.getElementById('cap-color').value;
-  const words=fullScript().split(/\s+/);
+  const words=fullScript().split(' ').filter(w=>w);
+  const imgs=loadedImages.filter(Boolean);
   kbPhase=0;
-  function frame(){
-    kbPhase+=0.008;
-    const t=kbPhase%1;
-    let scale=1, tx=0, ty=0;
-    if(fx==='zoom-in'||fx==='auto') scale=1+t*0.3;
-    else if(fx==='zoom-out') scale=1.3-t*0.3;
-    else if(fx==='pan-lr'){ scale=1.1; tx=(t-0.5)*60; }
-    else if(fx==='pan-rl'){ scale=1.1; tx=(0.5-t)*60; }
-    const cx=cv.width/2, cy=cv.height/2;
-    ctx.save();
-    ctx.fillStyle='#0d1117'; ctx.fillRect(0,0,cv.width,cv.height);
-    ctx.translate(cx+tx,cy+ty); ctx.scale(scale,scale); ctx.translate(-cx,-cy);
-    const g=ctx.createRadialGradient(cx,cy,10,cx,cy,180);
-    g.addColorStop(0,'#1a1a3e'); g.addColorStop(1,'#050510');
-    ctx.fillStyle=g; ctx.fillRect(0,0,cv.width,cv.height);
-    for(let i=0;i<20;i++){
-      ctx.fillStyle=`rgba(88,166,255,${0.02+Math.sin(kbPhase*2+i*0.7)*0.02})`;
-      ctx.beginPath();
-      ctx.arc((i*61+30)%cv.width,(i*47+20)%cv.height,1+Math.sin(kbPhase+i)*1.5,0,Math.PI*2);
-      ctx.fill();
+  let imgIdx=0;
+  const SLIDE_DURATION=3.0; // seconds per image at 60fps approx
+  let frameCount=0;
+
+  function drawBg(t){
+    // If we have real images, draw them with Ken Burns
+    if(imgs.length>0){
+      const img=imgs[imgIdx % imgs.length];
+      const progress=t % 1;
+      let scale=1, tx=0, ty=0;
+      const effects=fx==='auto'?['zoom-in','zoom-out','pan-lr','pan-rl']:null;
+      const curFx=effects?effects[imgIdx%effects.length]:fx;
+      if(curFx==='zoom-in') scale=1+progress*0.25;
+      else if(curFx==='zoom-out') scale=1.3-progress*0.3;
+      else if(curFx==='pan-lr'){ scale=1.15; tx=(progress-0.5)*cv.width*0.15; }
+      else if(curFx==='pan-rl'){ scale=1.15; tx=(0.5-progress)*cv.width*0.15; }
+
+      // Draw image centered with Ken Burns transform
+      const sw=cv.width*scale, sh=cv.height*scale;
+      const sx=(cv.width-sw)/2+tx, sy=(cv.height-sh)/2+ty;
+      // Fit image to cover canvas
+      const ir=img.naturalWidth/img.naturalHeight;
+      const cr=cv.width/cv.height;
+      let dw,dh,dx,dy;
+      if(ir>cr){ dh=cv.height*scale; dw=dh*ir; }
+      else { dw=cv.width*scale; dh=dw/ir; }
+      dx=(cv.width-dw)/2+tx; dy=(cv.height-dh)/2+ty;
+
+      ctx.save();
+      ctx.drawImage(img,dx,dy,dw,dh);
+      ctx.restore();
+    } else {
+      // Fallback gradient
+      const g=ctx.createRadialGradient(cv.width/2,cv.height/2,10,cv.width/2,cv.height/2,220);
+      g.addColorStop(0,'#1a1a3e'); g.addColorStop(1,'#050510');
+      ctx.fillStyle=g; ctx.fillRect(0,0,cv.width,cv.height);
     }
-    ctx.restore();
+  }
+
+  function frame(){
+    frameCount++;
+    // Advance image every ~180 frames (~3 sec at 60fps)
+    if(frameCount % 180 === 0 && imgs.length>1) imgIdx++;
+    kbPhase+=0.006;
+    ctx.clearRect(0,0,cv.width,cv.height);
+    drawBg(kbPhase);
+
+    // Caption bar
+    ctx.fillStyle='rgba(0,0,0,0.55)';
+    ctx.fillRect(0,cv.height-52,cv.width,52);
     const wi=Math.floor(kbPhase*1.5)%words.length;
-    const prevW=words[(wi-1+words.length)%words.length]||'';
-    const currW=words[wi]||'';
-    ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(0,cv.height-44,cv.width,44);
+    const line=(words[Math.max(0,wi-1)]+' '+(words[wi]||'')).trim().slice(-35);
     ctx.font=`bold 15px ${font}`;
-    ctx.textAlign='center'; ctx.strokeStyle='#000'; ctx.lineWidth=2;
-    const line=(prevW+' '+currW).trim();
-    ctx.strokeText(line,cv.width/2,cv.height-16);
-    ctx.fillStyle=color; ctx.fillText(line,cv.width/2,cv.height-16);
-    document.getElementById('cap-text').textContent=currW.toUpperCase();
-    document.getElementById('cap-text').style.fontFamily=font;
-    document.getElementById('cap-text').style.color=color;
+    ctx.textAlign='center';
+    ctx.strokeStyle='rgba(0,0,0,0.8)'; ctx.lineWidth=3;
+    ctx.strokeText(line,cv.width/2,cv.height-18);
+    ctx.fillStyle=color;
+    ctx.fillText(line,cv.width/2,cv.height-18);
+    document.getElementById('cap-text').textContent=(words[wi]||'').toUpperCase();
+    document.getElementById('cap-text').style.cssText=`font-family:${font};color:${color};font-size:15px;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.9)`;
     kbRaf=requestAnimationFrame(frame);
   }
   frame();
