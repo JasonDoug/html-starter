@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
 <!-- FFmpeg.wasm — loads ~30MB WASM binary on first assemble, then cached -->
 <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<!-- Puter.js — free AI image generation, no API key needed -->
+<script src="https://js.puter.com/v2/"></script>
 <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -359,7 +361,7 @@ canvas{width:100%;display:block;}
     </div>
   </div>
   <div class="notice" id="pexels-notice">
-    Images via <strong>Unsplash</strong> (no key needed). For higher quality set <code>PEXELS_API_KEY</code> in Vercel env vars — free at <a href="https://www.pexels.com/api/" style="color:var(--blue)" target="_blank">pexels.com/api</a>.
+    <strong>Puter.js</strong> — AI-generated images via Flux.1 Schnell. Completely free, no API key or signup needed. Images are generated to match your post topic.
   </div>
   <div id="img-grid" style="display:flex;gap:6px;flex-wrap:wrap;min-height:60px;"></div>
   <div class="row">
@@ -956,74 +958,90 @@ function animWave(){
   wf.querySelectorAll('.bar').forEach(b=>{ b.style.height=(Math.random()*32+8)+'px'; });
 }
 
-// ── Image fetching ────────────────────────────────────────────────────────────
+// ── Image fetching via Puter.js (free AI generation, no key needed) ─────────────
 let loadedImages = []; // HTMLImageElement array for Ken Burns
 
 async function fetchImages(){
-  // Auto-derive query from post title if field is empty
   let query = document.getElementById('img-query').value.trim();
   if(!query && selPost){
-    // Extract 2-3 meaningful words from title
     const stopWords = new Set(['the','a','an','is','are','was','were','in','on','at','to','for','of','and','or','but','i','my','we','they','you','it','this','that','with','from','how','why','what','when','who','has','have','had','its','be','been','can','will','just','about','after','before','so','than','then','as']);
     const words = selPost.title.toLowerCase().replace(/[^a-z0-9 ]/g,'').split(' ').filter(w=>w.length>3 && !stopWords.has(w));
-    query = words.slice(0,3).join(' ') || 'technology nature';
+    query = words.slice(0,4).join(' ') || 'cinematic landscape';
     document.getElementById('img-query').value = query;
   }
-  const count = document.getElementById('img-count').value || 6;
+  const count = parseInt(document.getElementById('img-count').value) || 6;
   const preset = document.getElementById('out-res')?.value || '1080x1920';
-  const orientation = preset.includes('1920x1080') ? 'landscape' : 'portrait';
-
+  const isVertical = !preset.includes('1920x1080');
   const grid = document.getElementById('img-grid');
-  grid.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px;">Loading images...</div>';
-  gs('Fetching images...','spin');
 
-  try{
-    const r = await fetch(`/api/images?query=${encodeURIComponent(query)}&count=${count}&orientation=${orientation}`);
-    const data = await r.json();
-    if(data.error) throw new Error(data.error);
+  grid.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px;display:flex;align-items:center;gap:6px;"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Generating AI images with Puter.js — no key needed...</div>';
+  gs('Generating images...','spin');
+  document.getElementById('pexels-notice').innerHTML = '<strong>Puter.js</strong> — AI-generated images (Flux.1 Schnell), free, no API key required. Images match your post topic.';
 
-    // Update notice with actual source
-    document.getElementById('pexels-notice').innerHTML = `Images from <strong>${data.source}</strong> — query: "${data.query}"`;
+  loadedImages = [];
+  grid.innerHTML = '';
 
-    // Render thumbnails
-    grid.innerHTML = '';
-    loadedImages = [];
-    let loaded = 0;
-    data.photos.forEach((p,i) => {
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'position:relative;cursor:pointer;border-radius:4px;overflow:hidden;border:2px solid transparent;';
-      const img = document.createElement('img');
-      img.src = p.thumb;
-      img.style.cssText = 'width:72px;height:96px;object-fit:cover;display:block;';
-      img.crossOrigin = 'anonymous';
-      wrap.title = `Photo by ${p.photographer}`;
-      wrap.onclick = () => {
-        wrap.style.borderColor = wrap.style.borderColor === 'var(--blue)' ? 'transparent' : 'var(--blue)';
-      };
-      wrap.appendChild(img);
-      grid.appendChild(wrap);
+  // Generate prompts tailored to each segment of the script
+  const scriptWords = script ? [script.hook, ...(script.body||[])].slice(0,count) : [];
+  const prompts = Array.from({length: count}, (_,i) => {
+    const base = scriptWords[i] ? `${scriptWords[i]}, cinematic photography` : `${query}, cinematic photography`;
+    return isVertical
+      ? `${base}, vertical portrait orientation, 9:16 aspect ratio, dramatic lighting, ultra detailed`
+      : `${base}, horizontal landscape, 16:9 aspect ratio, dramatic lighting, ultra detailed`;
+  });
 
-      // Preload full-res into HTMLImageElement for canvas
-      const full = new Image();
-      full.crossOrigin = 'anonymous';
-      full.src = p.url;
-      full.onload = () => {
-        loadedImages[i] = full;
+  let loaded = 0;
+  const total = prompts.length;
+
+  for(let i = 0; i < total; i++){
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;border-radius:4px;overflow:hidden;border:2px solid var(--border);background:var(--bg3);display:flex;align-items:center;justify-content:center;';
+    wrap.style.width = '72px';
+    wrap.style.height = '96px';
+    wrap.innerHTML = `<i class="ti ti-loader" style="font-size:18px;color:var(--text3);animation:pulse 1s infinite"></i>`;
+    grid.appendChild(wrap);
+
+    // Generate each image async
+    (async (idx, prompt, container) => {
+      try{
+        // Puter.js image generation — completely free, no key
+        const result = await puter.ai.txt2img(prompt, false);
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          loadedImages[idx] = img;
+          loaded++;
+          container.innerHTML = '';
+          container.style.cursor = 'pointer';
+          container.title = `AI: ${prompt.slice(0,60)}`;
+          container.onclick = () => {
+            container.style.borderColor = container.style.borderColor === 'var(--blue)' ? 'var(--border)' : 'var(--blue)';
+          };
+          const thumb = document.createElement('img');
+          thumb.src = img.src;
+          thumb.style.cssText = 'width:72px;height:96px;object-fit:cover;display:block;';
+          container.appendChild(thumb);
+          if(loaded === total){
+            gs(`${loaded} AI images ready`,'ok');
+            mark('vis',true);
+            document.getElementById('pexels-notice').innerHTML = `<strong>✓ ${loaded} images generated</strong> via Puter.js (Flux.1 Schnell) — click Preview Ken Burns`;
+          } else {
+            gs(`Generating images ${loaded}/${total}...`,'spin');
+          }
+        };
+        img.onerror = () => { loaded++; container.innerHTML = '<i class="ti ti-photo-off" style="color:var(--red);font-size:18px"></i>'; };
+        img.src = result.src || result;
+      }catch(e){
         loaded++;
-        if(loaded === data.photos.length){
-          gs(`${loaded} images ready`,'ok');
-          mark('vis',true);
-        }
-      };
-      full.onerror = () => { loaded++; };
-    });
-
-    gs(`${data.photos.length} images fetched`,'ok');
-  }catch(e){
-    grid.innerHTML = `<div style="color:var(--red);font-size:12px;">${esc(e.message)}</div>`;
-    gs('Image fetch error','err');
+        console.error('Puter image gen error:', e);
+        container.innerHTML = `<div style="font-size:9px;color:var(--red);padding:4px;text-align:center">${e.message?.slice(0,40)||'Error'}</div>`;
+        if(loaded === total) gs('Some images failed','warn');
+      }
+    })(i, prompts[i], wrap);
   }
 }
+
+
 
 function initCanvas(){
   const cv=document.getElementById('cvs');
