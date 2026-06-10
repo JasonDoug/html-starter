@@ -1,14 +1,16 @@
----
-name: HTML Starter
-slug: html-starter-with-analytics
-description: HTML5 template with analytics and advanced routing configuration.
-deployUrl: https://vercel.com/new/clone?repository-url=https://github.com/vercel/examples/tree/main/solutions/html&project-name=html
-relatedTemplates:
-  - nextjs-boilerplate
----
+# Reddit Video Studio
 
-# HTML Starter
+Browser-native video automation pipeline deployed on Vercel.
 
-This is a starter HTML5 templates which is configured with Vercel Analytics (through a `script` tag), advanced routing with [Vercel Edge Middleware](https://vercel.com/docs/concepts/functions/edge-middleware), as well as some basic styles
+## Sources
+- **Hacker News** — zero setup, works immediately
+- **The Guardian** — set `GUARDIAN_API_KEY` in Vercel env vars
+- **Reddit** — set `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` in Vercel env vars
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/vercel/examples/tree/main/solutions/html&project-name=html)
+## Stack
+- Content scraping via serverless `/api/sources` proxy
+- Script generation via Claude API
+- Voiceover via Web Speech API (word-level timing)
+- Ken Burns canvas animation
+- FFmpeg.wasm video assembly
+- YouTube Data API v3 upload + Analytics dashboard
