@@ -330,16 +330,15 @@ canvas{width:100%;display:block;}
   <div class="word-display" id="word-disp"><span style="color:var(--text3)">Words highlight in real-time as spoken</span></div>
   <div class="waveform" id="waveform"><div style="width:100%;text-align:center;font-size:11px;color:var(--text3)">Waveform active during playback</div></div>
   <div class="btns">
-    <button class="btn btn-primary" onclick="playTTS()"><i class="ti ti-player-play"></i> Preview voiceover</button>
+    <button class="btn btn-primary" onclick="recordAndPreview()"><i class="ti ti-player-record"></i> Record voiceover</button>
     <button class="btn btn-ghost" onclick="stopTTS()"><i class="ti ti-player-stop"></i> Stop</button>
-    <button class="btn btn-ghost" onclick="captureTTS()"><i class="ti ti-download"></i> Capture audio blob</button>
   </div>
-  <div class="status-row" id="tts-status"><span class="dot dot-idle"></span>Select a voice and preview</div>
+  <div class="status-row" id="tts-status"><span class="dot dot-idle"></span>Click Record — previews and captures in one step</div>
   <div class="notice">
     <strong>Word-level timing:</strong> SpeechSynthesis fires <code>boundary</code> events per word with elapsed time. These timestamps are stored and used to sync caption pop-in during video assembly.
   </div>
   <div style="display:flex;justify-content:flex-end;">
-    <button class="btn btn-primary" onclick="goto(3)"><i class="ti ti-arrow-right"></i> Next: visuals</button>
+    <button class="btn btn-primary" id="to3-btn" onclick="goto(3)"><i class="ti ti-arrow-right"></i> Next: visuals</button>
   </div>
 </div>
 
@@ -831,32 +830,57 @@ function loadVoices(){
   upd(); speechSynthesis.onvoiceschanged=upd;
 }
 
-function playTTS(){
+function playTTS(){ recordAndPreview(); }
+
+function recordAndPreview(){
   speechSynthesis.cancel();
   const txt=fullScript();
-  const words=txt.split(/\s+/);
+  if(txt.startsWith('No script')){ alert('Generate a script first.'); return; }
+  const words=txt.split(' ').filter(w=>w);
   const wd=document.getElementById('word-disp');
   wd.innerHTML='';
-  const spans=words.map((w,i)=>{ const s=document.createElement('span'); s.className='word'; s.textContent=w; wd.appendChild(s); return s; });
-  wordTimings=[];
-  let wi=0;
+  const spans=words.map(w=>{ const s=document.createElement('span'); s.className='word'; s.textContent=w; wd.appendChild(s); return s; });
+  wordTimings=[]; let wi=0;
   const utt=new SpeechSynthesisUtterance(txt);
   const vi=document.getElementById('voice-sel').value;
   if(voices[vi]) utt.voice=voices[vi];
   utt.rate=parseFloat(document.getElementById('vrate').value);
   utt.pitch=parseFloat(document.getElementById('vpitch').value);
+  let mr=null,chunks=[],ctx=null;
+  try{
+    ctx=new AudioContext();
+    const dest=ctx.createMediaStreamDestination();
+    mr=new MediaRecorder(dest.stream);
+    mr.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
+    mr.onstop=()=>{
+      audioBlob=new Blob(chunks,{type:'audio/webm'});
+      if(ctx) ctx.close();
+      const kb=Math.round(audioBlob.size/1024);
+      document.getElementById('tts-status').innerHTML=`<span class="dot dot-ok"></span>Done — ${wordTimings.length} word timings, ${kb}KB audio recorded`;
+      const nb=document.getElementById('to3-btn'); if(nb) nb.disabled=false;
+      mark('voice',true); gs('Voiceover ready','ok');
+    };
+  }catch(e){ console.warn('MediaRecorder unavailable, continuing without audio capture'); }
   utt.onboundary=e=>{
     if(e.name==='word'){
       spans.forEach(s=>s.classList.remove('active'));
       if(spans[wi]) spans[wi].classList.add('active');
-      wordTimings.push({word:words[wi],t:e.elapsedTime,i:wi});
-      wi++;
+      wordTimings.push({word:words[wi],t:e.elapsedTime,i:wi}); wi++;
       animWave();
       document.getElementById('sb-timings').textContent=wordTimings.length+' boundary events';
     }
   };
-  utt.onstart=()=>{ document.getElementById('tts-status').innerHTML='<span class="dot dot-spin"></span>Speaking...'; gs('Voiceover playing','spin'); };
-  utt.onend=()=>{ spans.forEach(s=>s.classList.remove('active')); document.getElementById('tts-status').innerHTML='<span class="dot dot-ok"></span>Complete — '+wordTimings.length+' word timings captured'; gs('Voice done','ok'); mark('voice',true); mark('vis',true); };
+  utt.onstart=()=>{ if(mr) mr.start(); document.getElementById('tts-status').innerHTML='<span class="dot dot-spin"></span>Recording voiceover...'; gs('Recording...','spin'); };
+  utt.onend=()=>{
+    if(mr && mr.state!=='inactive') mr.stop();
+    else {
+      spans.forEach(s=>s.classList.remove('active'));
+      document.getElementById('tts-status').innerHTML=`<span class="dot dot-ok"></span>Done — ${wordTimings.length} word timings captured`;
+      const nb=document.getElementById('to3-btn'); if(nb) nb.disabled=false;
+      mark('voice',true); gs('Voiceover ready','ok');
+    }
+    spans.forEach(s=>s.classList.remove('active'));
+  };
   speechSynthesis.speak(utt);
 }
 
