@@ -264,9 +264,28 @@ canvas{width:100%;display:block;}
     <div id="src-post" style="padding:9px 11px;background:var(--bg3);border:1px solid var(--border);border-radius:var(--radius);font-size:12px;color:var(--text2);">No post selected — go back to step 1</div>
   </div>
   <div class="field-group">
-    <div class="field-label">Anthropic API key</div>
-    <input type="text" id="apikey" placeholder="sk-ant-..." style="font-family:monospace;font-size:12px;">
-    <div style="font-size:11px;color:var(--text3);">Used client-side only. Never stored or transmitted elsewhere.</div>
+    <div class="field-label">AI provider</div>
+    <select id="ai-provider" onchange="updateProviderUI()">
+      <option value="openrouter" selected>OpenRouter (free models)</option>
+      <option value="anthropic">Anthropic Claude</option>
+    </select>
+  </div>
+  <div class="field-group" id="key-field">
+    <div class="field-label" id="key-label">OpenRouter API key</div>
+    <input type="text" id="apikey" placeholder="sk-or-v1-..." style="font-family:monospace;font-size:12px;">
+    <div style="font-size:11px;color:var(--text3);">
+      Free key at <a href="https://openrouter.ai/keys" target="_blank" style="color:var(--blue)">openrouter.ai/keys</a> — free models included. Used client-side only.
+    </div>
+  </div>
+  <div class="field-group" id="model-field">
+    <div class="field-label">Free model</div>
+    <select id="free-model">
+      <option value="meta-llama/llama-3.3-70b-instruct:free">Llama 3.3 70B (best free)</option>
+      <option value="meta-llama/llama-3.1-8b-instruct:free">Llama 3.1 8B (fastest)</option>
+      <option value="google/gemma-3-27b-it:free">Gemma 3 27B</option>
+      <option value="mistralai/mistral-7b-instruct:free">Mistral 7B</option>
+      <option value="microsoft/phi-3-mini-128k-instruct:free">Phi-3 Mini</option>
+    </select>
   </div>
   <div class="btns">
     <button class="btn btn-primary" onclick="genScript()"><i class="ti ti-sparkles"></i> Generate script</button>
@@ -665,26 +684,81 @@ function updateSrcPost(){
   el.style.color='var(--text)';
 }
 
+function updateProviderUI(){
+  const p=document.getElementById('ai-provider').value;
+  const lbl=document.getElementById('key-label');
+  const inp=document.getElementById('apikey');
+  const mf=document.getElementById('model-field');
+  if(p==='openrouter'){
+    lbl.textContent='OpenRouter API key';
+    inp.placeholder='sk-or-v1-...';
+    mf.style.display='flex';
+  } else {
+    lbl.textContent='Anthropic API key';
+    inp.placeholder='sk-ant-...';
+    mf.style.display='none';
+  }
+}
+
 async function genScript(){
   const key=document.getElementById('apikey').value.trim();
-  if(!key){alert('Enter your Anthropic API key first.');return;}
-  if(!selPost){alert('Select a Reddit post first.');return;}
+  const provider=document.getElementById('ai-provider').value;
+  if(!key){alert(`Enter your ${provider==='openrouter'?'OpenRouter':'Anthropic'} API key first.\n\n${provider==='openrouter'?'Get a free key at openrouter.ai/keys':'Get a key at console.anthropic.com'}`);return;}
+  if(!selPost){alert('Select a post first.');return;}
   const cfg=presets[curPreset];
   const seg=document.getElementById('segments');
   seg.innerHTML='<div class="placeholder"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Generating script...</div>';
   gs('Generating...','spin');
-  const sys=`You are a viral video scriptwriter. Generate a ${curGenre} ${cfg.label} script from a Reddit post. Return ONLY valid JSON:
-{"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","...up to 6"],"cta":"closing CTA 10-15 words","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description 150 chars"}
-Tone: ${curGenre}. Fits ${cfg.dur} seconds at normal speaking pace.`;
+
+  const sys=`You are a viral video scriptwriter. Generate a ${curGenre} ${cfg.label} script. Return ONLY valid JSON, no markdown, no backticks:
+{"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","sentence 3","sentence 4","sentence 5","sentence 6"],"cta":"closing CTA 10-15 words","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description under 150 chars"}
+Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return JSON only.`;
+
+  const userMsg=`Story: "${selPost.title}"\nDetails: ${selPost.selftext?selPost.selftext.slice(0,400):'(no body)'}\nScore: ${selPost.score}`;
+
   try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,
-        messages:[{role:'user',content:`Reddit post: "${selPost.title}"\nBody: ${selPost.selftext?selPost.selftext.slice(0,500):'(link post)'}\nUpvotes: ${selPost.score}`}]})
-    });
-    const data=await res.json();
-    let txt=data.content[0].text.replace(/```json|```/g,'').trim();
+    let txt='';
+
+    if(provider==='openrouter'){
+      const model=document.getElementById('free-model').value;
+      const res=await fetch('https://openrouter.ai/api/v1/chat/completions',{
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'Authorization':`Bearer ${key}`,
+          'HTTP-Referer':'https://html-starter-jpotter702s-projects.vercel.app',
+          'X-Title':'Reddit Video Studio'
+        },
+        body:JSON.stringify({
+          model,
+          max_tokens:1000,
+          messages:[
+            {role:'system',content:sys},
+            {role:'user',content:userMsg}
+          ]
+        })
+      });
+      const data=await res.json();
+      if(data.error) throw new Error(data.error.message||JSON.stringify(data.error));
+      txt=data.choices[0].message.content;
+    } else {
+      const res=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,
+          messages:[{role:'user',content:userMsg}]})
+      });
+      const data=await res.json();
+      if(data.error) throw new Error(data.error.message||JSON.stringify(data.error));
+      txt=data.content[0].text;
+    }
+
+    // Strip any markdown fences the model may add despite instructions
+    txt=txt.replace(/```json|```/g,'').trim();
+    // Find JSON object if model added preamble
+    const jsonMatch=txt.match(/\{[\s\S]*\}/);
+    if(jsonMatch) txt=jsonMatch[0];
+
     script=JSON.parse(txt);
     renderScript(script);
     document.getElementById('to2').disabled=false;
@@ -694,7 +768,7 @@ Tone: ${curGenre}. Fits ${cfg.dur} seconds at normal speaking pace.`;
     mark('script',true);
     gs('Script ready','ok');
   }catch(e){
-    seg.innerHTML=`<div class="placeholder" style="color:var(--red)"><i class="ti ti-alert-circle"></i>Error: ${esc(e.message)}</div>`;
+    seg.innerHTML=`<div class="placeholder" style="color:var(--red)"><i class="ti ti-alert-circle"></i>Error: ${esc(e.message)}<br><small>Check your API key and try again</small></div>`;
     gs('Script error','err');
   }
 }
