@@ -7,8 +7,6 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
 <!-- FFmpeg.wasm — loads ~30MB WASM binary on first assemble, then cached -->
 <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
-<!-- Puter.js — free AI image generation, no API key needed -->
-<script src="https://js.puter.com/v2/"></script>
 <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -361,7 +359,7 @@ canvas{width:100%;display:block;}
     </div>
   </div>
   <div class="notice" id="pexels-notice">
-    <strong>Puter.js</strong> — AI-generated images via Flux.1 Schnell. Completely free, no API key or signup needed. Images are generated to match your post topic.
+    <strong>Wikimedia Commons</strong> — millions of freely licensed photos, zero cost, no account needed. Falls back to Picsum random photos if no results.
   </div>
   <div id="img-grid" style="display:flex;gap:6px;flex-wrap:wrap;min-height:60px;"></div>
   <div class="row">
@@ -958,89 +956,114 @@ function animWave(){
   wf.querySelectorAll('.bar').forEach(b=>{ b.style.height=(Math.random()*32+8)+'px'; });
 }
 
-// ── Image fetching via Puter.js (free AI generation, no key needed) ─────────────
-let loadedImages = []; // HTMLImageElement array for Ken Burns
+// ── Image fetching via Wikimedia Commons — truly free, no key, open CORS ──────
+let loadedImages = [];
 
 async function fetchImages(){
   let query = document.getElementById('img-query').value.trim();
   if(!query && selPost){
     const stopWords = new Set(['the','a','an','is','are','was','were','in','on','at','to','for','of','and','or','but','i','my','we','they','you','it','this','that','with','from','how','why','what','when','who','has','have','had','its','be','been','can','will','just','about','after','before','so','than','then','as']);
-    const words = selPost.title.toLowerCase().replace(/[^a-z0-9 ]/g,'').split(' ').filter(w=>w.length>3 && !stopWords.has(w));
-    query = words.slice(0,4).join(' ') || 'cinematic landscape';
+    const words = selPost.title.toLowerCase().replace(/[^a-z0-9 ]/g,'').split(' ').filter(w=>w.length>3&&!stopWords.has(w));
+    query = words.slice(0,3).join(' ') || 'nature landscape';
     document.getElementById('img-query').value = query;
   }
   const count = parseInt(document.getElementById('img-count').value) || 6;
-  const preset = document.getElementById('out-res')?.value || '1080x1920';
-  const isVertical = !preset.includes('1920x1080');
   const grid = document.getElementById('img-grid');
-
-  grid.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px;display:flex;align-items:center;gap:6px;"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Generating AI images with Puter.js — no key needed...</div>';
-  gs('Generating images...','spin');
-  document.getElementById('pexels-notice').innerHTML = '<strong>Puter.js</strong> — AI-generated images (Flux.1 Schnell), free, no API key required. Images match your post topic.';
+  grid.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px;display:flex;align-items:center;gap:6px;"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Searching Wikimedia Commons...</div>';
+  gs('Fetching images...','spin');
+  document.getElementById('pexels-notice').innerHTML = '<strong>Wikimedia Commons</strong> — millions of freely licensed photos, zero cost, no account needed.';
 
   loadedImages = [];
   grid.innerHTML = '';
 
-  // Generate prompts tailored to each segment of the script
-  const scriptWords = script ? [script.hook, ...(script.body||[])].slice(0,count) : [];
-  const prompts = Array.from({length: count}, (_,i) => {
-    const base = scriptWords[i] ? `${scriptWords[i]}, cinematic photography` : `${query}, cinematic photography`;
-    return isVertical
-      ? `${base}, vertical portrait orientation, 9:16 aspect ratio, dramatic lighting, ultra detailed`
-      : `${base}, horizontal landscape, 16:9 aspect ratio, dramatic lighting, ultra detailed`;
-  });
+  try{
+    // Wikimedia Commons image search — open CORS, completely free
+    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${Math.min(count*3,30)}&prop=imageinfo&iiprop=url|dimensions|mime&iiurlwidth=1080&format=json&origin=*`;
+    const r = await fetch(url);
+    const data = await r.json();
+    const pages = Object.values(data?.query?.pages || {});
 
-  let loaded = 0;
-  const total = prompts.length;
+    // Filter to actual photos (not SVG, not tiny, not icons)
+    const photos = pages
+      .filter(p => {
+        const ii = p.imageinfo?.[0];
+        if(!ii) return false;
+        const mime = ii.mime || '';
+        const w = ii.thumbwidth || ii.width || 0;
+        const h = ii.thumbheight || ii.height || 0;
+        return mime.startsWith('image/jpeg') || mime.startsWith('image/png') || mime.startsWith('image/webp');
+      })
+      .slice(0, count);
 
-  for(let i = 0; i < total; i++){
-    const wrap = document.createElement('div');
-    wrap.style.cssText = 'position:relative;border-radius:4px;overflow:hidden;border:2px solid var(--border);background:var(--bg3);display:flex;align-items:center;justify-content:center;';
-    wrap.style.width = '72px';
-    wrap.style.height = '96px';
-    wrap.innerHTML = `<i class="ti ti-loader" style="font-size:18px;color:var(--text3);animation:pulse 1s infinite"></i>`;
-    grid.appendChild(wrap);
-
-    // Generate each image async
-    (async (idx, prompt, container) => {
-      try{
-        // Puter.js image generation — completely free, no key
-        const result = await puter.ai.txt2img(prompt, false);
+    if(photos.length === 0){
+      // Fallback: Picsum random photos (beautiful, always available, truly free)
+      grid.innerHTML = '';
+      document.getElementById('pexels-notice').innerHTML = '<strong>Picsum Photos</strong> — random high-quality stock photos (Wikimedia had no results for this query).';
+      const preset = document.getElementById('out-res')?.value || '1080x1920';
+      const isVertical = !preset.includes('1920x1080');
+      const w = isVertical ? 1080 : 1920;
+      const h = isVertical ? 1920 : 1080;
+      let loaded = 0;
+      for(let i = 0; i < count; i++){
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'position:relative;border-radius:4px;overflow:hidden;border:2px solid var(--border);cursor:pointer;';
+        const imgUrl = `https://picsum.photos/${w}/${h}?random=${Date.now()+i}`;
         const img = new Image();
         img.crossOrigin = 'anonymous';
         img.onload = () => {
-          loadedImages[idx] = img;
+          loadedImages[i] = img;
           loaded++;
-          container.innerHTML = '';
-          container.style.cursor = 'pointer';
-          container.title = `AI: ${prompt.slice(0,60)}`;
-          container.onclick = () => {
-            container.style.borderColor = container.style.borderColor === 'var(--blue)' ? 'var(--border)' : 'var(--blue)';
-          };
           const thumb = document.createElement('img');
           thumb.src = img.src;
           thumb.style.cssText = 'width:72px;height:96px;object-fit:cover;display:block;';
-          container.appendChild(thumb);
-          if(loaded === total){
-            gs(`${loaded} AI images ready`,'ok');
-            mark('vis',true);
-            document.getElementById('pexels-notice').innerHTML = `<strong>✓ ${loaded} images generated</strong> via Puter.js (Flux.1 Schnell) — click Preview Ken Burns`;
-          } else {
-            gs(`Generating images ${loaded}/${total}...`,'spin');
-          }
+          wrap.appendChild(thumb);
+          wrap.onclick = () => wrap.style.borderColor = wrap.style.borderColor==='var(--blue)'?'var(--border)':'var(--blue)';
+          if(loaded===count){ gs(`${loaded} images ready`,'ok'); mark('vis',true); }
         };
-        img.onerror = () => { loaded++; container.innerHTML = '<i class="ti ti-photo-off" style="color:var(--red);font-size:18px"></i>'; };
-        img.src = result.src || result;
-      }catch(e){
-        loaded++;
-        console.error('Puter image gen error:', e);
-        container.innerHTML = `<div style="font-size:9px;color:var(--red);padding:4px;text-align:center">${e.message?.slice(0,40)||'Error'}</div>`;
-        if(loaded === total) gs('Some images failed','warn');
+        img.src = imgUrl;
+        wrap.innerHTML = '<div style="width:72px;height:96px;display:flex;align-items:center;justify-content:center;"><i class="ti ti-loader" style="animation:pulse 1s infinite;color:var(--text3)"></i></div>';
+        grid.appendChild(wrap);
       }
-    })(i, prompts[i], wrap);
+      return;
+    }
+
+    // Render Wikimedia results
+    let loaded = 0;
+    photos.forEach((p, i) => {
+      const ii = p.imageinfo[0];
+      const thumbUrl = ii.thumburl || ii.url;
+      const wrap = document.createElement('div');
+      wrap.style.cssText = 'position:relative;border-radius:4px;overflow:hidden;border:2px solid var(--border);cursor:pointer;';
+      wrap.innerHTML = '<div style="width:72px;height:96px;display:flex;align-items:center;justify-content:center;"><i class="ti ti-loader" style="animation:pulse 1s infinite;color:var(--text3)"></i></div>';
+      grid.appendChild(wrap);
+      wrap.onclick = () => wrap.style.borderColor = wrap.style.borderColor==='var(--blue)'?'var(--border)':'var(--blue)';
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        loadedImages[i] = img;
+        loaded++;
+        wrap.innerHTML = '';
+        const thumb = document.createElement('img');
+        thumb.src = thumbUrl;
+        thumb.style.cssText = 'width:72px;height:96px;object-fit:cover;display:block;';
+        wrap.appendChild(thumb);
+        if(loaded === photos.length){
+          gs(`${loaded} images ready`,'ok');
+          mark('vis',true);
+          document.getElementById('pexels-notice').innerHTML = `<strong>✓ ${loaded} images</strong> from Wikimedia Commons — click Preview Ken Burns`;
+        }
+      };
+      img.onerror = () => { loaded++; wrap.innerHTML = '<div style="width:72px;height:96px;background:var(--bg3)"></div>'; };
+      img.src = thumbUrl;
+    });
+
+    gs(`Loading ${photos.length} images...`,'spin');
+  }catch(e){
+    grid.innerHTML = `<div style="color:var(--red);font-size:12px;padding:8px;">${esc(e.message)}</div>`;
+    gs('Image fetch error','err');
   }
 }
-
 
 
 function initCanvas(){
