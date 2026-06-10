@@ -516,6 +516,11 @@ canvas{width:100%;display:block;}
     <div class="field-label">Google OAuth2 Client ID</div>
     <input type="text" id="goog-id" placeholder="xxxxx.apps.googleusercontent.com" style="font-family:monospace;font-size:11px;">
   </div>
+  <div id="oauth-uri-box" style="display:none;" class="notice">
+    <strong>Add these EXACTLY in Google Cloud Console → Credentials → your OAuth client:</strong><br>
+    Authorized JavaScript origins: <code id="oauth-uri-hint" style="user-select:all;color:var(--green)"></code><br>
+    Authorized redirect URIs: <code style="user-select:all;color:var(--green)" id="oauth-uri-hint2"></code>
+  </div>
   <div class="btns">
     <button class="btn btn-ghost" onclick="oauthLogin()"><i class="ti ti-brand-google"></i> Connect Google account</button>
     <button class="btn btn-primary" id="upload-btn" disabled onclick="doUpload()"><i class="ti ti-upload"></i> Upload to YouTube</button>
@@ -1300,13 +1305,59 @@ function downloadVid(){
 function oauthLogin(){
   const cid=document.getElementById('goog-id').value.trim();
   if(!cid){alert('Enter your Google OAuth2 Client ID first.');return;}
+
+  // Redirect URI must be EXACTLY the origin — no path, no trailing slash
+  const redirectUri = window.location.origin;
   const scope=encodeURIComponent('https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/yt-analytics.readonly');
-  const redir=encodeURIComponent(window.location.href.split('?')[0]);
-  const url=`https://accounts.google.com/o/oauth2/v2/auth?client_id=${cid}&redirect_uri=${redir}&response_type=token&scope=${scope}`;
-  document.getElementById('pub-status').innerHTML='<span class="dot dot-spin"></span>Opening OAuth popup...';
-  window.open(url,'_blank','width=500,height=600');
-  setTimeout(()=>{ document.getElementById('pub-status').innerHTML='<span class="dot dot-warn"></span>Complete login in popup then click Upload'; document.getElementById('upload-btn').disabled=false; },2000);
+
+  // Show the user exactly what to register in Google Cloud
+  document.getElementById('oauth-uri-hint').textContent = redirectUri;
+  document.getElementById('oauth-uri-box').style.display = 'block';
+
+  const url=`https://accounts.google.com/o/oauth2/v2/auth?client_id=${cid}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&access_type=online`;
+  document.getElementById('pub-status').innerHTML='<span class="dot dot-spin"></span>Opening Google login...';
+
+  // Handle the token from redirect — Google returns #access_token=... in the URL
+  const handleHash = () => {
+    const hash = window.location.hash;
+    if(hash.includes('access_token')){
+      const params = new URLSearchParams(hash.slice(1));
+      window._ytToken = params.get('access_token');
+      window.location.hash = '';
+      document.getElementById('pub-status').innerHTML='<span class="dot dot-ok"></span>Connected! Ready to upload.';
+      document.getElementById('upload-btn').disabled=false;
+      window.removeEventListener('focus', handleHash);
+    }
+  };
+
+  // Also check on page load in case we came back from OAuth redirect
+  if(window.location.hash.includes('access_token')){
+    handleHash();
+    return;
+  }
+
+  window.open(url,'_blank','width=500,height=650');
+  window.addEventListener('focus', handleHash);
+  setTimeout(()=>{
+    if(!window._ytToken){
+      document.getElementById('pub-status').innerHTML='<span class="dot dot-warn"></span>Complete sign-in in the popup, then return here';
+      document.getElementById('upload-btn').disabled=false;
+    }
+  },3000);
 }
+
+// Check for OAuth token on page load (handles redirect back from Google)
+window.addEventListener('load', ()=>{
+  if(window.location.hash.includes('access_token')){
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    window._ytToken = params.get('access_token');
+    window.location.hash = '';
+    const st = document.getElementById('pub-status');
+    if(st) st.innerHTML='<span class="dot dot-ok"></span>Google account connected!';
+    const ub = document.getElementById('upload-btn');
+    if(ub) ub.disabled=false;
+  }
+});
 
 function doUpload(){
   const st=document.getElementById('pub-status');
