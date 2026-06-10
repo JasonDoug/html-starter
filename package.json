@@ -2,7 +2,7 @@
   "name": "reddit-video-studio",
   "version": "1.0.0",
   "private": true,
-  "dependencies": {
-    "@vercel/edge": "^1.0.0"
+  "engines": {
+    "node": ">=18"
   }
 }
