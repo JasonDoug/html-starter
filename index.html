@@ -682,6 +682,21 @@ function htmlToText(html){
   return (doc.body.textContent||'').replace(/\s+/g,' ').replace(/submitted by.*$/i,'').trim();
 }
 
+function parseRedditAtom(xml){
+  const doc=new DOMParser().parseFromString(xml,'text/xml');
+  const entries=[...doc.getElementsByTagName('entry')];
+  if(!entries.length) throw new Error('Feed had no entries');
+  const g=(e,t)=>{const n=e.getElementsByTagName(t)[0];return n?n.textContent:'';};
+  return entries.map(e=>{
+    const link=e.getElementsByTagName('link')[0];
+    const thumb=e.getElementsByTagNameNS('*','thumbnail')[0];
+    return {id:g(e,'id'),title:g(e,'title'),score:null,num_comments:null,
+      author:g(e,'name'),url:link?link.getAttribute('href'):'',
+      selftext:htmlToText(g(e,'content')).slice(0,500),source:'reddit',
+      created_utc:Date.parse(g(e,'updated')||g(e,'published'))/1000,
+      thumbnail:thumb?thumb.getAttribute('url')||'':''};
+  });
+}
 async function fetchRedditRss(sub,sort,time){
   const clean=sub.replace(/^\/?r\//i,'').trim();
   if(!/^[A-Za-z0-9_+]{2,50}$/.test(clean)) throw new Error('Enter a valid subreddit name, e.g. todayilearned');
@@ -689,39 +704,45 @@ async function fetchRedditRss(sub,sort,time){
   if(sort==='top') rssUrl+=`?t=${time}`;
   let key='';
   try{key=(document.getElementById('rss2json-key').value||'').trim();localStorage.setItem('rss2json_key',key);}catch(e){}
-  let url=`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
-  if(key) url+=`&api_key=${encodeURIComponent(key)}&count=25`;
-  let data=null,lastErr='';
-  for(let attempt=0;attempt<4;attempt++){
-    if(attempt){
-      const wait=attempt*3;
-      for(let s=wait;s>0;s--){
-        gs(`rss2json busy — retrying in ${s}s (attempt ${attempt+1}/4)`,'spin');
-        await new Promise(r=>setTimeout(r,1000));
-      }
+  const enc=encodeURIComponent(rssUrl);
+  const routes=[
+    ['rss2json',async()=>{
+      let u=`https://api.rss2json.com/v1/api.json?rss_url=${enc}`;
+      if(key) u+=`&api_key=${encodeURIComponent(key)}&count=25`;
+      const r=await fetch(u);let j=null;try{j=await r.json();}catch(e){}
+      if(r.ok&&j&&j.status==='ok') return (j.items||[]).map(i=>({
+        id:i.guid,title:i.title,score:null,num_comments:null,
+        author:(i.author||'').replace(/^\/?u\//,'u/'),url:i.link,
+        selftext:htmlToText(i.content||i.description).slice(0,500),source:'reddit',
+        created_utc:Date.parse((i.pubDate||'').replace(' ','T')+'Z')/1000,thumbnail:i.thumbnail||''}));
+      throw new Error((j&&j.message)||`HTTP ${r.status}`);
+    }],
+    ['allorigins',async()=>{
+      const r=await fetch(`https://api.allorigins.win/raw?url=${enc}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      return parseRedditAtom(await r.text());
+    }],
+    ['corsproxy',async()=>{
+      const r=await fetch(`https://corsproxy.io/?url=${enc}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      return parseRedditAtom(await r.text());
+    }],
+    ['codetabs',async()=>{
+      const r=await fetch(`https://api.codetabs.com/v1/proxy/?quest=${enc}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      return parseRedditAtom(await r.text());
+    }]
+  ];
+  const errs=[];
+  for(let round=0;round<2;round++){
+    if(round){for(let s=5;s>0;s--){gs(`All routes busy — retrying in ${s}s`,'spin');await new Promise(r=>setTimeout(r,1000));}}
+    for(const [name,fn] of routes){
+      gs(`Trying ${name}...`,'spin');
+      try{const out=await fn();if(out&&out.length) return out;errs.push(`${name}: empty`);}
+      catch(e){errs.push(`${name}: ${e.message}`);}
     }
-    try{
-      const r=await fetch(url);
-      let j=null; try{j=await r.json();}catch(e){}
-      if(r.ok && j && j.status==='ok'){data=j;break;}
-      lastErr=(j&&j.message)||`rss2json returned ${r.status}`;
-      const retryable=r.status===429||r.status>=500||/rate|limit|busy/i.test(lastErr);
-      if(!retryable) break;
-    }catch(e){lastErr='Network error reaching rss2json';}
   }
-  if(!data) throw new Error(lastErr+(/rate|limit|429|503/i.test(lastErr)?' — add a free rss2json API key below for higher limits':''));
-  return (data.items||[]).map(i=>({
-    id:i.guid,
-    title:i.title,
-    score:null,
-    num_comments:null,
-    author:(i.author||'').replace(/^\/?u\//,'u/'),
-    url:i.link,
-    selftext:htmlToText(i.content||i.description).slice(0,500),
-    source:'reddit',
-    created_utc:Date.parse((i.pubDate||'').replace(' ','T')+'Z')/1000,
-    thumbnail:i.thumbnail||''
-  }));
+  throw new Error('Reddit is throttling every free proxy right now ('+errs.slice(-4).join('; ')+'). Wait a minute and retry, or use Hacker News.');
 }
 
 async function scrape(){
