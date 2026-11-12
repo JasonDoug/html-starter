@@ -697,6 +697,7 @@ function parseRedditAtom(xml){
       thumbnail:thumb?thumb.getAttribute('url')||'':''};
   });
 }
+function tfetch(u,ms=12000){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);return fetch(u,{signal:c.signal}).finally(()=>clearTimeout(t));}
 async function fetchRedditRss(sub,sort,time){
   const clean=sub.replace(/^\/?r\//i,'').trim();
   if(!/^[A-Za-z0-9_+]{2,50}$/.test(clean)) throw new Error('Enter a valid subreddit name, e.g. todayilearned');
@@ -706,10 +707,15 @@ async function fetchRedditRss(sub,sort,time){
   try{key=(document.getElementById('rss2json-key').value||'').trim();localStorage.setItem('rss2json_key',key);}catch(e){}
   const enc=encodeURIComponent(rssUrl);
   const routes=[
+    ['local server',async()=>{
+      const r=await tfetch(`/api/rss?url=${enc}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      return parseRedditAtom(await r.text());
+    }],
     ['rss2json',async()=>{
       let u=`https://api.rss2json.com/v1/api.json?rss_url=${enc}`;
       if(key) u+=`&api_key=${encodeURIComponent(key)}&count=25`;
-      const r=await fetch(u);let j=null;try{j=await r.json();}catch(e){}
+      const r=await tfetch(u);let j=null;try{j=await r.json();}catch(e){}
       if(r.ok&&j&&j.status==='ok') return (j.items||[]).map(i=>({
         id:i.guid,title:i.title,score:null,num_comments:null,
         author:(i.author||'').replace(/^\/?u\//,'u/'),url:i.link,
@@ -718,17 +724,17 @@ async function fetchRedditRss(sub,sort,time){
       throw new Error((j&&j.message)||`HTTP ${r.status}`);
     }],
     ['allorigins',async()=>{
-      const r=await fetch(`https://api.allorigins.win/raw?url=${enc}`);
+      const r=await tfetch(`https://api.allorigins.win/raw?url=${enc}`);
       if(!r.ok) throw new Error(`HTTP ${r.status}`);
       return parseRedditAtom(await r.text());
     }],
     ['corsproxy',async()=>{
-      const r=await fetch(`https://corsproxy.io/?url=${enc}`);
+      const r=await tfetch(`https://corsproxy.io/?url=${enc}`);
       if(!r.ok) throw new Error(`HTTP ${r.status}`);
       return parseRedditAtom(await r.text());
     }],
     ['codetabs',async()=>{
-      const r=await fetch(`https://api.codetabs.com/v1/proxy/?quest=${enc}`);
+      const r=await tfetch(`https://api.codetabs.com/v1/proxy/?quest=${enc}`);
       if(!r.ok) throw new Error(`HTTP ${r.status}`);
       return parseRedditAtom(await r.text());
     }]

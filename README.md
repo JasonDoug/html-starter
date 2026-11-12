@@ -14,3 +14,11 @@ Browser-native video automation pipeline deployed on Vercel.
 - Ken Burns canvas animation
 - FFmpeg.wasm video assembly
 - YouTube Data API v3 upload + Analytics dashboard
+
+## Run locally (no Vercel)
+```
+git clone https://github.com/JasonDoug/html-starter && cd html-starter
+node server.mjs          # http://localhost:3000
+# or: docker compose up -d --build
+```
+The local server fetches Reddit RSS from your own IP via `/api/rss`, which avoids shared-proxy rate limits.
