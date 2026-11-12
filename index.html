@@ -321,6 +321,13 @@ canvas{width:100%;display:block;}
 
 <!-- PANEL 2: VOICE -->
 <div class="panel" id="p2">
+  <div class="field-group" style="margin-bottom:10px;">
+    <div class="field-label">Voice engine</div>
+    <select id="voice-engine" onchange="loadVoices()">
+      <option value="kokoro" selected>Kokoro AI voice — real audio in the video (free, ~90MB one-time download)</option>
+      <option value="browser">Browser voices — preview only, video will be silent</option>
+    </select>
+  </div>
   <div class="row">
     <div class="field-group" style="flex:2;">
       <div class="field-label">Voice</div>
@@ -353,7 +360,7 @@ canvas{width:100%;display:block;}
   </div>
   <div class="status-row" id="tts-status"><span class="dot dot-idle"></span>Click Record — previews and captures in one step</div>
   <div class="notice">
-    <strong>Word-level timing:</strong> SpeechSynthesis fires <code>boundary</code> events per word with elapsed time. These timestamps are stored and used to sync caption pop-in during video assembly.
+    <strong>Real audio + word timing:</strong> Kokoro runs in your browser and produces actual audio that goes into the video. Word times are estimated per sentence from the audio length and drive the caption pop-in. Browser voices can't be recorded, so they give a silent video.
   </div>
   <div style="display:flex;justify-content:flex-end;">
     <button class="btn btn-primary" id="to3-btn" onclick="goto(3)"><i class="ti ti-arrow-right"></i> Next: visuals</button>
@@ -460,25 +467,27 @@ canvas{width:100%;display:block;}
         <option value="auto">Auto-detect</option>
         <option value="bpm">Custom BPM</option>
       </select>
+      <input type="number" id="bpm-val" value="120" min="60" max="200" style="margin-top:4px;width:80px;" title="BPM (used with Custom BPM)">
     </div>
   </div>
   <div class="asm-steps" id="asm-steps">
-    <div class="status-row"><span class="dot dot-idle" id="as0"></span>1. Load FFmpeg.wasm core (~30MB, cached after first run)</div>
-    <div class="status-row"><span class="dot dot-idle" id="as1"></span>2. Render Ken Burns frames to canvas (requestAnimationFrame)</div>
-    <div class="status-row"><span class="dot dot-idle" id="as2"></span>3. Capture audio from Web Speech API via MediaRecorder</div>
-    <div class="status-row"><span class="dot dot-idle" id="as3"></span>4. Burn word-timed caption overlays using stored boundary events</div>
-    <div class="status-row"><span class="dot dot-idle" id="as4"></span>5. Mux video + audio tracks with FFmpeg.wasm</div>
-    <div class="status-row"><span class="dot dot-idle" id="as5"></span>6. Export final MP4 / download blob</div>
+    <div class="status-row"><span class="dot dot-idle" id="as0"></span>1. Prepare renderer at output resolution</div>
+    <div class="status-row"><span class="dot dot-idle" id="as1"></span>2. Render Ken Burns + transitions + captions in real time</div>
+    <div class="status-row"><span class="dot dot-idle" id="as2"></span>3. Add the recorded voiceover audio track</div>
+    <div class="status-row"><span class="dot dot-idle" id="as3"></span>4. Word-level pop captions (drawn into every frame)</div>
+    <div class="status-row"><span class="dot dot-idle" id="as4"></span>5. Encode (native MP4/WebM; FFmpeg.wasm only if MP4 needs converting)</div>
+    <div class="status-row"><span class="dot dot-idle" id="as5"></span>6. Export + preview</div>
   </div>
   <div class="prog-bar"><div class="prog-fill" id="asm-prog" style="width:0%"></div></div>
   <div id="asm-pct" style="font-size:11px;color:var(--text3);">0%</div>
   <div class="log" id="asm-log">Waiting to start...</div>
+  <video id="asm-preview" controls playsinline style="display:none;width:100%;max-height:420px;border-radius:8px;background:#000;margin-top:8px;"></video>
   <div class="btns">
     <button class="btn btn-primary" onclick="assemble()"><i class="ti ti-video"></i> Assemble video</button>
     <button class="btn btn-ghost" id="dl-btn" disabled onclick="downloadVid()"><i class="ti ti-download"></i> Download MP4</button>
   </div>
   <div class="notice">
-    <strong>FFmpeg.wasm</strong> runs H.264 encoding entirely in your browser via WebAssembly. First load takes ~10s; after that it's cached. Video never leaves your machine until you choose to publish.
+    <strong>Rendering is real time:</strong> a 60-second video takes about 60 seconds. Keep this tab open and visible while it runs. The video never leaves your machine until you publish.
   </div>
   <div style="display:flex;justify-content:flex-end;">
     <button class="btn btn-primary" onclick="goto(5)"><i class="ti ti-arrow-right"></i> Next: publish</button>
@@ -629,7 +638,7 @@ function goto(n){
     document.getElementById('s'+i).classList.toggle('active',i===n);
   }
   if(n===1 && selPost) updateSrcPost();
-  if(n===2) loadVoices();
+  if(n===2 && !document.getElementById('voice-sel').options.length) loadVoices();
   if(n===3) initCanvas();
 }
 
@@ -967,45 +976,128 @@ function clearScript(){ script=null; document.getElementById('segments').innerHT
 
 function fullScript(){ return script?[script.hook,...script.body,script.cta].join(' '):'No script yet — generate one in step 2.'; }
 
+const KOKORO_VOICES=[['af_heart','Heart — US female (best)'],['af_bella','Bella — US female'],['af_nicole','Nicole — US female'],['am_michael','Michael — US male'],['am_fenrir','Fenrir — US male'],['bf_emma','Emma — UK female'],['bm_george','George — UK male']];
+let voiceAudio=null,kokoroTTS=null,voicePlayer=null,voiceRaf=null;
+
 function loadVoices(){
   const sel=document.getElementById('voice-sel');
+  const eng=document.getElementById('voice-engine').value;
+  if(eng==='kokoro'){
+    sel.innerHTML='';
+    KOKORO_VOICES.forEach(([id,l])=>{ const o=document.createElement('option'); o.value=id; o.textContent=l; sel.appendChild(o); });
+    document.getElementById('vpitch').disabled=true;
+    return;
+  }
+  document.getElementById('vpitch').disabled=false;
   const upd=()=>{ voices=speechSynthesis.getVoices(); sel.innerHTML=''; voices.forEach((v,i)=>{ const o=document.createElement('option'); o.value=i; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o); }); };
   upd(); speechSynthesis.onvoiceschanged=upd;
 }
 
-function playTTS(){ recordAndPreview(); }
+function ttsStatus(html){ document.getElementById('tts-status').innerHTML=html; }
+function voiceDone(msg){
+  ttsStatus(`<span class="dot dot-ok"></span>${msg}`);
+  const nb=document.getElementById('to3-btn'); if(nb) nb.disabled=false;
+  mark('voice',true); gs('Voiceover ready','ok');
+}
+function buildWordDisplay(words){
+  const wd=document.getElementById('word-disp'); wd.innerHTML='';
+  return words.map(w=>{ const s=document.createElement('span'); s.className='word'; s.textContent=w; wd.appendChild(s); return s; });
+}
+function estimateWordTimes(words,t0,dur){
+  const wt=words.map(w=>w.length+2+(/[.,;:!?]$/.test(w)?4:0));
+  const sum=wt.reduce((a,b)=>a+b,0)||1; let t=t0;
+  return words.map((w,i)=>{ const o={word:w,t}; t+=dur*wt[i]/sum; return o; });
+}
+function floatToWav(samples,sr){
+  const buf=new ArrayBuffer(44+samples.length*2), v=new DataView(buf);
+  const ws=(o,s)=>{ for(let i=0;i<s.length;i++) v.setUint8(o+i,s.charCodeAt(i)); };
+  ws(0,'RIFF'); v.setUint32(4,36+samples.length*2,true); ws(8,'WAVEfmt '); v.setUint32(16,16,true);
+  v.setUint16(20,1,true); v.setUint16(22,1,true); v.setUint32(24,sr,true); v.setUint32(28,sr*2,true);
+  v.setUint16(32,2,true); v.setUint16(34,16,true); ws(36,'data'); v.setUint32(40,samples.length*2,true);
+  for(let i=0;i<samples.length;i++){ const s=Math.max(-1,Math.min(1,samples[i])); v.setInt16(44+i*2,s<0?s*0x8000:s*0x7fff,true); }
+  return new Blob([buf],{type:'audio/wav'});
+}
+function splitSentences(text){
+  const m=text.replace(/\s+/g,' ').trim().match(/[^.!?]+[.!?]+["')\]]*|[^.!?]+$/g)||[text];
+  const out=[]; m.map(s=>s.trim()).filter(Boolean).forEach(s=>{
+    if(out.length && out[out.length-1].length<25) out[out.length-1]+=' '+s; else out.push(s);
+  });
+  return out;
+}
 
-function recordAndPreview(){
-  speechSynthesis.cancel();
+async function loadKokoro(){
+  if(kokoroTTS) return kokoroTTS;
+  ttsStatus('<span class="dot dot-spin"></span>Loading voice engine...');
+  const mod=await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/dist/kokoro.web.js');
+  kokoroTTS=await mod.KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX',{
+    dtype:'q8', device:'wasm',
+    progress_callback:p=>{ if(p&&p.status==='progress'&&p.total>1e6) ttsStatus(`<span class="dot dot-spin"></span>Downloading voice model (first time only): ${Math.round(p.progress||0)}%`); }
+  });
+  return kokoroTTS;
+}
+
+async function kokoroRecord(){
+  const tts=await loadKokoro();
+  const sentences=splitSentences(fullScript());
+  const speed=parseFloat(document.getElementById('vrate').value)||1;
+  const voice=document.getElementById('voice-sel').value||'af_heart';
+  const parts=[], all=[]; let sr=24000, tcur=0; const GAP=0.22;
+  for(let k=0;k<sentences.length;k++){
+    ttsStatus(`<span class="dot dot-spin"></span>Generating speech ${k+1}/${sentences.length}...`);
+    gs(`Voice ${k+1}/${sentences.length}`,'spin');
+    const a=await tts.generate(sentences[k],{voice,speed});
+    sr=a.sampling_rate||24000;
+    const dur=a.audio.length/sr;
+    const sw=sentences[k].split(/\s+/).filter(Boolean);
+    estimateWordTimes(sw,tcur,dur).forEach(o=>all.push(o));
+    parts.push(a.audio,new Float32Array(Math.round(GAP*sr)));
+    tcur+=dur+GAP;
+  }
+  const total=parts.reduce((n,p)=>n+p.length,0), samples=new Float32Array(total); let off=0;
+  parts.forEach(p=>{ samples.set(p,off); off+=p.length; });
+  wordTimings=all.map((o,i)=>({word:o.word,t:o.t,i}));
+  voiceAudio={samples,sr,duration:total/sr};
+  audioBlob=floatToWav(samples,sr);
+  buildWordDisplay(wordTimings.map(w=>w.word));
+  document.getElementById('sb-timings').textContent=wordTimings.length+' word timings';
+  voiceDone(`Done — ${voiceAudio.duration.toFixed(1)}s of real audio, ${wordTimings.length} word timings`);
+  playVoicePreview();
+}
+
+function playVoicePreview(){
+  if(!voiceAudio) return;
+  stopVoicePreview();
+  const ctx=new AudioContext({sampleRate:voiceAudio.sr});
+  const buf=ctx.createBuffer(1,voiceAudio.samples.length,voiceAudio.sr); buf.copyToChannel(voiceAudio.samples,0);
+  const src=ctx.createBufferSource(); src.buffer=buf; src.connect(ctx.destination); src.start();
+  voicePlayer={ctx,src};
+  const spans=[...document.querySelectorAll('#word-disp .word')];
+  const loop=()=>{
+    const t=ctx.currentTime; let wi=-1;
+    for(let i=0;i<wordTimings.length;i++){ if(wordTimings[i].t<=t) wi=i; else break; }
+    spans.forEach((s,i)=>s.classList.toggle('active',i===wi));
+    if(wi>=0 && wi!==loop.last){ loop.last=wi; animWave(); }
+    if(t<voiceAudio.duration) voiceRaf=requestAnimationFrame(loop); else spans.forEach(s=>s.classList.remove('active'));
+  };
+  loop();
+}
+function stopVoicePreview(){
+  if(voiceRaf){ cancelAnimationFrame(voiceRaf); voiceRaf=null; }
+  if(voicePlayer){ try{voicePlayer.src.stop();}catch(e){} try{voicePlayer.ctx.close();}catch(e){} voicePlayer=null; }
+}
+
+function webSpeechRecord(){
   const txt=fullScript();
-  if(txt.startsWith('No script')){ alert('Generate a script first.'); return; }
-  const words=txt.split(' ').filter(w=>w);
-  const wd=document.getElementById('word-disp');
-  wd.innerHTML='';
-  const spans=words.map(w=>{ const s=document.createElement('span'); s.className='word'; s.textContent=w; wd.appendChild(s); return s; });
-  wordTimings=[]; let wi=0;
+  const words=txt.split(/\s+/).filter(Boolean);
+  const spans=buildWordDisplay(words);
+  wordTimings=[]; voiceAudio=null; audioBlob=null; let wi=0;
   const utt=new SpeechSynthesisUtterance(txt);
   const vi=document.getElementById('voice-sel').value;
   if(voices[vi]) utt.voice=voices[vi];
   utt.rate=parseFloat(document.getElementById('vrate').value);
   utt.pitch=parseFloat(document.getElementById('vpitch').value);
-  let mr=null,chunks=[],ctx=null;
-  try{
-    ctx=new AudioContext();
-    const dest=ctx.createMediaStreamDestination();
-    mr=new MediaRecorder(dest.stream);
-    mr.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
-    mr.onstop=()=>{
-      audioBlob=new Blob(chunks,{type:'audio/webm'});
-      if(ctx) ctx.close();
-      const kb=Math.round(audioBlob.size/1024);
-      document.getElementById('tts-status').innerHTML=`<span class="dot dot-ok"></span>Done — ${wordTimings.length} word timings, ${kb}KB audio recorded`;
-      const nb=document.getElementById('to3-btn'); if(nb) nb.disabled=false;
-      mark('voice',true); gs('Voiceover ready','ok');
-    };
-  }catch(e){ console.warn('MediaRecorder unavailable, continuing without audio capture'); }
   utt.onboundary=e=>{
-    if(e.name==='word'){
+    if(e.name==='word' && wi<words.length){
       spans.forEach(s=>s.classList.remove('active'));
       if(spans[wi]) spans[wi].classList.add('active');
       wordTimings.push({word:words[wi],t:e.elapsedTime,i:wi}); wi++;
@@ -1013,73 +1105,27 @@ function recordAndPreview(){
       document.getElementById('sb-timings').textContent=wordTimings.length+' boundary events';
     }
   };
-  utt.onstart=()=>{ if(mr) mr.start(); document.getElementById('tts-status').innerHTML='<span class="dot dot-spin"></span>Recording voiceover...'; gs('Recording...','spin'); };
+  utt.onstart=()=>{ ttsStatus('<span class="dot dot-spin"></span>Speaking...'); gs('Speaking...','spin'); };
   utt.onend=()=>{
-    if(mr && mr.state!=='inactive') mr.stop();
-    else {
-      spans.forEach(s=>s.classList.remove('active'));
-      document.getElementById('tts-status').innerHTML=`<span class="dot dot-ok"></span>Done — ${wordTimings.length} word timings captured`;
-      const nb=document.getElementById('to3-btn'); if(nb) nb.disabled=false;
-      mark('voice',true); gs('Voiceover ready','ok');
-    }
     spans.forEach(s=>s.classList.remove('active'));
+    if(wordTimings.length && wordTimings[wordTimings.length-1].t>600) wordTimings.forEach(w=>w.t/=1000); // some browsers report ms
+    if(wordTimings.length<words.length) wordTimings=estimateWordTimes(words,0,words.length*0.38).map((o,i)=>({...o,i}));
+    voiceDone(`Done — ${wordTimings.length} word timings. Browsers can't capture this voice, so the video would be silent. Use the Kokoro engine for real audio.`);
   };
   speechSynthesis.speak(utt);
 }
 
-function stopTTS(){ speechSynthesis.cancel(); document.getElementById('tts-status').innerHTML='<span class="dot dot-idle"></span>Stopped'; }
-
-function captureTTS(){
-  if(!script){ alert('Generate a script first.'); return; }
-  speechSynthesis.cancel();
-  const txt = fullScript();
-  const words = txt.split(/\s+/);
-  const wd = document.getElementById('word-disp');
-  wd.innerHTML = '';
-  const spans = words.map((w)=>{ const s=document.createElement('span'); s.className='word'; s.textContent=w; wd.appendChild(s); return s; });
-
-  // Create AudioContext to capture speech output
-  const ctx = new AudioContext();
-  const dest = ctx.createMediaStreamDestination();
-  const mr = new MediaRecorder(dest.stream);
-  const chunks = [];
-  mr.ondataavailable = e => { if(e.data.size>0) chunks.push(e.data); };
-  mr.onstop = () => {
-    audioBlob = new Blob(chunks, { type:'audio/webm' });
-    document.getElementById('tts-status').innerHTML = `<span class="dot dot-ok"></span>Audio captured: ${Math.round(audioBlob.size/1024)}KB — ready for assembly`;
-    mark('voice', true);
-    gs('Audio captured','ok');
-  };
-
-  wordTimings = [];
-  let wi = 0;
-  const utt = new SpeechSynthesisUtterance(txt);
-  const vi = document.getElementById('voice-sel').value;
-  if(voices[vi]) utt.voice = voices[vi];
-  utt.rate = parseFloat(document.getElementById('vrate').value);
-  utt.pitch = parseFloat(document.getElementById('vpitch').value);
-  utt.onboundary = e => {
-    if(e.name==='word'){
-      spans.forEach(s=>s.classList.remove('active'));
-      if(spans[wi]) spans[wi].classList.add('active');
-      wordTimings.push({word:words[wi], t:e.elapsedTime, i:wi});
-      wi++;
-      animWave();
-      document.getElementById('sb-timings').textContent = wordTimings.length+' boundary events';
-    }
-  };
-  utt.onstart = () => {
-    mr.start();
-    document.getElementById('tts-status').innerHTML='<span class="dot dot-spin"></span>Recording...';
-    gs('Recording voiceover','spin');
-  };
-  utt.onend = () => {
-    mr.stop();
-    ctx.close();
-    spans.forEach(s=>s.classList.remove('active'));
-  };
-  speechSynthesis.speak(utt);
+async function recordAndPreview(){
+  stopTTS();
+  if(!script){ ttsStatus('<span class="dot dot-warn"></span>Generate a script first (step 2)'); return; }
+  if(document.getElementById('voice-engine').value==='kokoro'){
+    try{ await kokoroRecord(); }
+    catch(e){ console.error(e); ttsStatus(`<span class="dot dot-err"></span>Kokoro voice failed: ${esc(e.message)} — switch Voice engine to "Browser voices" or retry`); gs('Voice error','err'); }
+  } else webSpeechRecord();
 }
+function playTTS(){ recordAndPreview(); }
+function stopTTS(){ speechSynthesis.cancel(); stopVoicePreview(); }
+function captureTTS(){ recordAndPreview(); }
 
 function animWave(){
   const wf=document.getElementById('waveform');
@@ -1205,83 +1251,128 @@ function initCanvas(){
   ctx.fillText('Preview — click "Preview Ken Burns"',cv.width/2,cv.height/2);
 }
 
-let kbPhase=0;
+function easeOutBack(x){ const c1=1.70158,c3=c1+1; return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2); }
+const KB_FX=['zoom-in','pan-lr','zoom-out','pan-rl'];
+
+function buildRenderState(){
+  const imgs=loadedImages.filter(Boolean);
+  let words;
+  if(wordTimings.length) words=wordTimings.map(w=>({word:w.word,t:w.t}));
+  else words=fullScript().split(/\s+/).filter(Boolean).map((w,i)=>({word:w,t:i*0.38}));
+  const duration=voiceAudio?voiceAudio.duration:(words.length?words[words.length-1].t+0.9:10);
+  const chunks=[]; let cur=[];
+  words.forEach((w,i)=>{ cur.push(i); if(cur.length>=3||/[.,!?;:]$/.test(w.word)){ chunks.push(cur); cur=[]; } });
+  if(cur.length) chunks.push(cur);
+  const w2c=[]; chunks.forEach((c,ci)=>c.forEach(i=>w2c[i]=ci));
+  const color=document.getElementById('cap-color').value;
+  const slideLen=imgs.length>1?Math.min(6,Math.max(3,duration/imgs.length)):Math.max(duration,1);
+  return {
+    imgs,words,chunks,w2c,duration,slideLen,
+    fx:document.getElementById('kb-fx').value,
+    trans:(document.getElementById('trans').value||'Crossfade'),
+    font:document.getElementById('cap-font').value,
+    color, hl:color.toLowerCase()==='#ffd700'?'#00FF88':'#FFD700',
+    beat:document.getElementById('beat').value,
+    bpm:parseFloat(document.getElementById('bpm-val').value)||120,
+    beatTimes:chunks.map(c=>words[c[0]].t)
+  };
+}
+
+function drawKB(ctx,img,W,H,fx,p,alpha,mult){
+  let scale=1,tx=0;
+  if(fx==='zoom-in') scale=1+p*0.25;
+  else if(fx==='zoom-out') scale=1.25-p*0.25;
+  else if(fx==='pan-lr'){ scale=1.2; tx=(p-0.5)*W*0.16; }
+  else if(fx==='pan-rl'){ scale=1.2; tx=(0.5-p)*W*0.16; }
+  scale*=mult;
+  const ir=img.naturalWidth/img.naturalHeight, cr=W/H; let dw,dh;
+  if(ir>cr){ dh=H*scale; dw=dh*ir; } else { dw=W*scale; dh=dw/ir; }
+  ctx.globalAlpha=alpha;
+  ctx.drawImage(img,(W-dw)/2+tx,(H-dh)/2,dw,dh);
+  ctx.globalAlpha=1;
+}
+
+function renderFrame(ctx,W,H,t,S){
+  ctx.fillStyle='#050510'; ctx.fillRect(0,0,W,H);
+  let pulse=1;
+  if(S.beat==='bpm'){ const ph=(t*S.bpm/60)%1; pulse=1+0.035*Math.pow(1-ph,3); }
+  else if(S.beat==='auto'){ let last=-9; for(const bt of S.beatTimes){ if(bt<=t) last=bt; else break; } pulse=1+0.035*Math.pow(Math.max(0,1-(t-last)/0.35),2); }
+  const n=S.imgs.length;
+  if(n){
+    const idx=Math.floor(t/S.slideLen), local=t-idx*S.slideLen, p=local/S.slideLen;
+    const fxAt=k=>S.fx==='auto'?KB_FX[k%4]:S.fx;
+    const cur=S.imgs[idx%n], nxt=S.imgs[(idx+1)%n];
+    const FADE=0.6, remain=S.slideLen-local;
+    const doTrans=n>1 && S.trans!=='Hard cut' && remain<FADE && t+remain<S.duration;
+    if(!doTrans) drawKB(ctx,cur,W,H,fxAt(idx),p,1,pulse);
+    else {
+      const q=1-remain/FADE;
+      if(S.trans==='Wipe'){
+        drawKB(ctx,cur,W,H,fxAt(idx),p,1,pulse);
+        ctx.save(); ctx.beginPath(); ctx.rect(0,0,W*q,H); ctx.clip();
+        drawKB(ctx,nxt,W,H,fxAt(idx+1),0,1,pulse); ctx.restore();
+      } else if(S.trans==='Zoom through'){
+        drawKB(ctx,nxt,W,H,fxAt(idx+1),0,q,pulse);
+        drawKB(ctx,cur,W,H,fxAt(idx),p,1-q,pulse*(1+q*0.4));
+      } else {
+        drawKB(ctx,cur,W,H,fxAt(idx),p,1,pulse);
+        drawKB(ctx,nxt,W,H,fxAt(idx+1),0,q,pulse);
+      }
+    }
+  } else {
+    const g=ctx.createRadialGradient(W/2,H/2,10,W/2,H/2,Math.max(W,H)*0.6);
+    g.addColorStop(0,'#1a1a3e'); g.addColorStop(1,'#050510'); ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+  }
+  // legibility gradient
+  const gr=ctx.createLinearGradient(0,H*0.45,0,H); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(1,'rgba(0,0,0,0.55)');
+  ctx.fillStyle=gr; ctx.fillRect(0,H*0.45,W,H*0.55);
+
+  // word-level pop captions
+  let wi=-1; for(let i=0;i<S.words.length;i++){ if(S.words[i].t<=t) wi=i; else break; }
+  if(wi>=0 && t<S.words[S.words.length-1].t+1.2){
+    const chunk=S.chunks[S.w2c[wi]];
+    const fs=Math.round(Math.min(W,H)*0.085);
+    ctx.font=`bold ${fs}px ${S.font}, sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.lineJoin='round';
+    const gap=fs*0.4, widths=chunk.map(i=>ctx.measureText(S.words[i].word.toUpperCase()).width);
+    const total=widths.reduce((a,b)=>a+b,0)+gap*(chunk.length-1), maxW=W*0.88;
+    const lines=(total>maxW&&chunk.length>1)?[chunk.slice(0,Math.ceil(chunk.length/2)),chunk.slice(Math.ceil(chunk.length/2))]:[chunk];
+    const baseY=H>W?H*0.68:H*0.82;
+    lines.forEach((ln,li)=>{
+      const lw=ln.reduce((a,i)=>a+widths[chunk.indexOf(i)],0)+gap*(ln.length-1);
+      let x=W/2-lw/2; const y=baseY+(li-(lines.length-1)/2)*fs*1.2;
+      ln.forEach(i=>{
+        const w=widths[chunk.indexOf(i)], active=i===wi, age=t-S.words[i].t;
+        const s=active?1+0.32*Math.max(0,1-age/0.18):1;
+        ctx.save(); ctx.translate(x+w/2,y); ctx.scale(s,s);
+        ctx.lineWidth=fs*0.16; ctx.strokeStyle='rgba(0,0,0,0.9)';
+        const txt=S.words[i].word.toUpperCase();
+        ctx.strokeText(txt,0,0);
+        ctx.fillStyle=active?S.hl:S.color; ctx.fillText(txt,0,0);
+        ctx.restore(); x+=w+gap;
+      });
+    });
+  }
+  // progress bar
+  ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.fillRect(0,H-Math.max(4,H*0.004),W,Math.max(4,H*0.004));
+  ctx.fillStyle=S.hl; ctx.fillRect(0,H-Math.max(4,H*0.004),W*Math.min(1,t/S.duration),Math.max(4,H*0.004));
+}
+
 function startKB(){
   stopKB();
-  const cv=document.getElementById('cvs');
-  const ctx=cv.getContext('2d');
-  const fx=document.getElementById('kb-fx').value;
-  const font=document.getElementById('cap-font').value;
-  const color=document.getElementById('cap-color').value;
-  const words=fullScript().split(' ').filter(w=>w);
-  const imgs=loadedImages.filter(Boolean);
-  kbPhase=0;
-  let imgIdx=0;
-  const SLIDE_DURATION=3.0; // seconds per image at 60fps approx
-  let frameCount=0;
-
-  function drawBg(t){
-    // If we have real images, draw them with Ken Burns
-    if(imgs.length>0){
-      const img=imgs[imgIdx % imgs.length];
-      const progress=t % 1;
-      let scale=1, tx=0, ty=0;
-      const effects=fx==='auto'?['zoom-in','zoom-out','pan-lr','pan-rl']:null;
-      const curFx=effects?effects[imgIdx%effects.length]:fx;
-      if(curFx==='zoom-in') scale=1+progress*0.25;
-      else if(curFx==='zoom-out') scale=1.3-progress*0.3;
-      else if(curFx==='pan-lr'){ scale=1.15; tx=(progress-0.5)*cv.width*0.15; }
-      else if(curFx==='pan-rl'){ scale=1.15; tx=(0.5-progress)*cv.width*0.15; }
-
-      // Draw image centered with Ken Burns transform
-      const sw=cv.width*scale, sh=cv.height*scale;
-      const sx=(cv.width-sw)/2+tx, sy=(cv.height-sh)/2+ty;
-      // Fit image to cover canvas
-      const ir=img.naturalWidth/img.naturalHeight;
-      const cr=cv.width/cv.height;
-      let dw,dh,dx,dy;
-      if(ir>cr){ dh=cv.height*scale; dw=dh*ir; }
-      else { dw=cv.width*scale; dh=dw/ir; }
-      dx=(cv.width-dw)/2+tx; dy=(cv.height-dh)/2+ty;
-
-      ctx.save();
-      ctx.drawImage(img,dx,dy,dw,dh);
-      ctx.restore();
-    } else {
-      // Fallback gradient
-      const g=ctx.createRadialGradient(cv.width/2,cv.height/2,10,cv.width/2,cv.height/2,220);
-      g.addColorStop(0,'#1a1a3e'); g.addColorStop(1,'#050510');
-      ctx.fillStyle=g; ctx.fillRect(0,0,cv.width,cv.height);
-    }
-  }
-
-  function frame(){
-    frameCount++;
-    // Advance image every ~180 frames (~3 sec at 60fps)
-    if(frameCount % 180 === 0 && imgs.length>1) imgIdx++;
-    kbPhase+=0.006;
-    ctx.clearRect(0,0,cv.width,cv.height);
-    drawBg(kbPhase);
-
-    // Caption bar
-    ctx.fillStyle='rgba(0,0,0,0.55)';
-    ctx.fillRect(0,cv.height-52,cv.width,52);
-    const wi=Math.floor(kbPhase*1.5)%words.length;
-    const line=(words[Math.max(0,wi-1)]+' '+(words[wi]||'')).trim().slice(-35);
-    ctx.font=`bold 15px ${font}`;
-    ctx.textAlign='center';
-    ctx.strokeStyle='rgba(0,0,0,0.8)'; ctx.lineWidth=3;
-    ctx.strokeText(line,cv.width/2,cv.height-18);
-    ctx.fillStyle=color;
-    ctx.fillText(line,cv.width/2,cv.height-18);
-    document.getElementById('cap-text').textContent=(words[wi]||'').toUpperCase();
-    document.getElementById('cap-text').style.cssText=`font-family:${font};color:${color};font-size:15px;font-weight:700;text-shadow:0 2px 6px rgba(0,0,0,.9)`;
+  const cv=document.getElementById('cvs'), ctx=cv.getContext('2d');
+  const S=buildRenderState();
+  const loopLen=Math.max(4,Math.min(S.duration,20));
+  const t0=performance.now();
+  const frame=()=>{
+    const t=((performance.now()-t0)/1000)%loopLen;
+    renderFrame(ctx,cv.width,cv.height,t,S);
     kbRaf=requestAnimationFrame(frame);
-  }
+  };
+  document.getElementById('cap-text').textContent='';
   frame();
   mark('vis',true);
 }
-
 function stopKB(){ if(kbRaf){ cancelAnimationFrame(kbRaf); kbRaf=null; } }
 function addSlot(){ const s=document.getElementById('slots'); const d=document.createElement('div'); d.style.cssText='width:60px;height:60px;border:1px dashed var(--border2);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3);font-size:11px;'; d.innerHTML='<i class="ti ti-plus" style="font-size:18px"></i>'; s.appendChild(d); }
 
@@ -1321,118 +1412,107 @@ async function loadFFmpeg() {
 }
 
 async function assemble(){
-  const log = document.getElementById('asm-log');
-  const prog = document.getElementById('asm-prog');
-  const pct = document.getElementById('asm-pct');
-  log.innerHTML = '';
+  const log=document.getElementById('asm-log'), prog=document.getElementById('asm-prog'), pct=document.getElementById('asm-pct');
+  log.innerHTML='';
+  const addLog=(m,c)=>{ log.innerHTML+=`<span class="${c||'info'}">${esc(m)}</span>\n`; log.scrollTop=log.scrollHeight; };
+  const setStep=(id,s)=>{ document.getElementById(id).className='dot dot-'+s; };
+  const setProg=p=>{ prog.style.width=p+'%'; pct.textContent=Math.round(p)+'%'; };
+  ['as0','as1','as2','as3','as4','as5'].forEach(i=>setStep(i,'idle')); setProg(0);
+  document.getElementById('dl-btn').disabled=true;
+  try{
+    if(!window.MediaRecorder||!HTMLCanvasElement.prototype.captureStream) throw new Error('This browser cannot record canvas video — use desktop Chrome/Edge or Safari 14.1+');
+    if(!script) throw new Error('Generate a script first (step 2)');
+    if(!wordTimings.length) throw new Error('Record the voiceover first (step 3)');
+    stopKB(); stopVoicePreview();
 
-  function addLog(m, cls){ log.innerHTML += `<span class="${cls||'info'}">${esc(m)}</span>\n`; log.scrollTop = log.scrollHeight; }
-  function setStep(id, state){ document.getElementById(id).className = 'dot dot-' + state; }
+    setStep('as0','spin'); addLog('[1] Preparing renderer...'); gs('Preparing...','spin');
+    const S=buildRenderState();
+    const [W,H]=document.getElementById('out-res').value.split('x').map(Number);
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const ctx=cv.getContext('2d');
+    addLog(`    ✓ ${W}×${H}, ${S.duration.toFixed(1)}s, ${S.words.length} captioned words, ${S.imgs.length} images`,'ok');
+    if(!S.imgs.length) addLog('    ! No images loaded — using a gradient background (fetch images in step 4)','warn');
+    setStep('as0','ok');
 
-  try {
-    // Step 1: Load FFmpeg
-    setStep('as0','spin'); addLog('[1] Loading FFmpeg.wasm...','info'); gs('Loading FFmpeg.wasm...','spin');
-    const ff = await loadFFmpeg();
-    setStep('as0','ok'); addLog('    ✓ FFmpeg.wasm ready','ok');
+    setStep('as2','spin'); addLog('[2] Preparing voiceover audio track...');
+    let actx=null,dest=null,src=null;
+    if(voiceAudio){
+      actx=new AudioContext({sampleRate:voiceAudio.sr});
+      dest=actx.createMediaStreamDestination();
+      const buf=actx.createBuffer(1,voiceAudio.samples.length,voiceAudio.sr); buf.copyToChannel(voiceAudio.samples,0);
+      src=actx.createBufferSource(); src.buffer=buf; src.connect(dest);
+      await actx.resume();
+      addLog(`    ✓ Real voiceover, ${voiceAudio.duration.toFixed(1)}s`,'ok'); setStep('as2','ok');
+    } else {
+      addLog('    ! No captured audio (browser voices cannot be recorded) — video will be silent. Use the Kokoro voice engine in step 3.','warn'); setStep('as2','warn');
+    }
 
-    // Step 2: Capture canvas frames
-    setStep('as1','spin'); addLog('[2] Capturing canvas frames (3 seconds @ 30fps)...','info');
-    const cv = document.getElementById('cvs');
-    const stream = cv.captureStream(30);
-    const chunks = [];
-    const mr = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
-    mr.ondataavailable = e => { if(e.data.size > 0) chunks.push(e.data); };
+    setStep('as1','spin'); addLog('[3] Rendering frames + captions in real time (keep this tab open and visible)...'); gs('Rendering video...','spin');
+    const wantMp4=document.getElementById('out-fmt').value==='mp4';
+    const cands=(wantMp4?['video/mp4;codecs=avc1.640028,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4']:[]).concat(['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm']);
+    const mime=cands.find(m=>MediaRecorder.isTypeSupported(m));
+    if(!mime) throw new Error('No supported video recording format in this browser');
+    const vs=cv.captureStream(30);
+    if(dest) dest.stream.getAudioTracks().forEach(t=>vs.addTrack(t));
+    const mr=new MediaRecorder(vs,{mimeType:mime,videoBitsPerSecond:W*H>1.5e6?8e6:5e6,audioBitsPerSecond:128000});
+    const chunks=[]; mr.ondataavailable=e=>{ if(e.data.size>0) chunks.push(e.data); };
+    const total=S.duration+0.5;
+    renderFrame(ctx,W,H,0,S);
+    await new Promise(resolve=>{
+      mr.onstop=resolve; mr.start(1000);
+      if(src) src.start();
+      const start=performance.now();
+      const tick=()=>{
+        const t=(performance.now()-start)/1000;
+        renderFrame(ctx,W,H,Math.min(t,S.duration),S);
+        setProg(Math.min(95,t/total*95));
+        if(t>=total){ mr.stop(); return; }
+        requestAnimationFrame(tick);
+      };
+      tick();
+    });
+    if(actx) try{ actx.close(); }catch(e){}
+    let ext=mime.includes('mp4')?'mp4':'webm';
+    let blob=new Blob(chunks,{type:mime.split(';')[0]});
+    addLog(`    ✓ Recorded ${Math.round(blob.size/1024)}KB ${ext.toUpperCase()}`,'ok');
+    setStep('as1','ok'); setStep('as3','ok');
 
-    // Run Ken Burns for 3s while recording
-    startKB();
-    mr.start();
-    await new Promise(r => setTimeout(r, 3000));
-    mr.stop();
-    stopKB();
-    await new Promise(r => mr.onstop = r);
-    const videoBlob = new Blob(chunks, { type: 'video/webm' });
-    setStep('as1','ok'); addLog('    ✓ ' + Math.round(videoBlob.size/1024) + 'KB video captured','ok');
+    setStep('as4','spin'); addLog('[4] Encoding...');
+    if(wantMp4 && ext==='webm'){
+      if(S.duration<=90){
+        try{
+          addLog('    Browser has no native MP4 recorder — converting with FFmpeg.wasm (can take a few minutes)...');
+          const ff=await loadFFmpeg();
+          await ff.writeFile('in.webm',new Uint8Array(await blob.arrayBuffer()));
+          await ff.exec(['-i','in.webm','-c:v','libx264','-preset','ultrafast','-crf','28','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart','out.mp4']);
+          const d=await ff.readFile('out.mp4');
+          blob=new Blob([d.buffer],{type:'video/mp4'}); ext='mp4';
+          addLog(`    ✓ Converted to MP4 (${Math.round(blob.size/1024)}KB)`,'ok');
+        }catch(e){ addLog('    ! MP4 conversion failed ('+e.message+') — keeping WebM, which YouTube accepts','warn'); }
+      } else addLog('    ! Video is long — skipping slow in-browser conversion. WebM works fine on YouTube.','warn');
+    } else addLog('    ✓ Native '+ext.toUpperCase()+' — no conversion needed','ok');
+    setStep('as4','ok');
 
-    // Step 3: Audio — use recorded blob if available, else synthesize silence
-    setStep('as2','spin'); addLog('[3] Preparing audio track...','info');
-    // We write a silent audio file; real audio comes from captureTTS() in the full flow
-    const silenceDuration = 3; // seconds matching video
-    const sampleRate = 44100;
-    const samples = silenceDuration * sampleRate;
-    const wavHeader = createWavHeader(samples, sampleRate);
-    const silenceData = new Uint8Array(wavHeader.length + samples * 2);
-    silenceData.set(wavHeader, 0);
-    await ff.writeFile('audio.wav', silenceData);
-    setStep('as2','ok'); addLog('    ✓ Audio track ready','ok');
-
-    // Step 4: Write video to FFmpeg FS
-    setStep('as3','spin'); addLog('[4] Writing files to FFmpeg virtual FS...','info');
-    const { fetchFile } = FFmpegUtil;
-    await ff.writeFile('input.webm', await fetchFile(videoBlob));
-
-    // Burn caption overlay via drawtext filter
-    const capFont = document.getElementById('cap-font').value.replace(/'/g,'');
-    const sampleCaption = script ? script.hook.slice(0,30) : 'SAMPLE CAPTION';
-    setStep('as3','ok'); addLog('    ✓ Files written to virtual FS','ok');
-
-    // Step 5: Mux
-    setStep('as4','spin'); addLog('[5] Muxing video + audio with FFmpeg.wasm...','info');
-    gs('Muxing...','spin');
-
-    const res = document.getElementById('out-res').value;
-    const [w, h] = res.split('x');
-
-    await ff.exec([
-      '-i', 'input.webm',
-      '-i', 'audio.wav',
-      '-c:v', 'libx264',
-      '-preset', 'ultrafast',
-      '-crf', '28',
-      '-vf', `scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2`,
-      '-c:a', 'aac',
-      '-shortest',
-      '-movflags', '+faststart',
-      'output.mp4'
-    ]);
-    setStep('as4','ok'); addLog('    ✓ Mux complete','ok');
-
-    // Step 6: Export
-    setStep('as5','spin'); addLog('[6] Exporting MP4...','info');
-    const data = await ff.readFile('output.mp4');
-    const mp4Blob = new Blob([data.buffer], { type: 'video/mp4' });
-    window._assembledBlob = mp4Blob;
-    setStep('as5','ok');
-    prog.style.width = '100%'; pct.textContent = '100%';
-    addLog('    ✓ ' + Math.round(mp4Blob.size/1024) + 'KB MP4 ready for download','ok');
-    addLog('Assembly complete!','ok');
+    setStep('as5','spin');
+    window._assembledBlob=blob; window._assembledExt=ext;
+    const pv=document.getElementById('asm-preview');
+    if(window._asmUrl) URL.revokeObjectURL(window._asmUrl);
+    window._asmUrl=URL.createObjectURL(blob); pv.src=window._asmUrl; pv.style.display='block';
+    document.getElementById('dl-btn').disabled=false;
+    document.getElementById('dl-btn').innerHTML=`<i class="ti ti-download"></i> Download ${ext.toUpperCase()}`;
+    setStep('as5','ok'); setProg(100);
+    addLog('Assembly complete — preview below.','ok');
     gs('Video ready','ok'); mark('vid',true);
-    document.getElementById('dl-btn').disabled = false;
-
-  } catch(e) {
-    addLog('ERROR: ' + e.message, 'warn');
-    gs('Assembly error','err');
-    console.error(e);
+  }catch(e){
+    addLog('ERROR: '+e.message,'warn'); gs('Assembly error','err'); console.error(e);
   }
 }
 
-function createWavHeader(numSamples, sampleRate) {
-  const buf = new ArrayBuffer(44);
-  const view = new DataView(buf);
-  const writeStr = (off, str) => { for(let i=0;i<str.length;i++) view.setUint8(off+i, str.charCodeAt(i)); };
-  writeStr(0,'RIFF'); view.setUint32(4, 36 + numSamples*2, true);
-  writeStr(8,'WAVE'); writeStr(12,'fmt ');
-  view.setUint32(16,16,true); view.setUint16(20,1,true); view.setUint16(22,1,true);
-  view.setUint32(24,sampleRate,true); view.setUint32(28,sampleRate*2,true);
-  view.setUint16(32,2,true); view.setUint16(34,16,true);
-  writeStr(36,'data'); view.setUint32(40,numSamples*2,true);
-  return new Uint8Array(buf);
-}
-
 function downloadVid(){
-  if (!window._assembledBlob) { alert('Assemble the video first.'); return; }
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(window._assembledBlob);
-  a.download = 'reddit-video.mp4';
+  if(!window._assembledBlob){ alert('Assemble the video first.'); return; }
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(window._assembledBlob);
+  a.download='reddit-video.'+(window._assembledExt||'mp4');
   a.click();
 }
 
@@ -1442,7 +1522,7 @@ function oauthLogin(){
 
   // Redirect URI must be EXACTLY the origin — no path, no trailing slash
   const redirectUri = window.location.origin;
-  const scope=encodeURIComponent('https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/yt-analytics.readonly');
+  const scope=encodeURIComponent('https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly https://www.googleapis.com/auth/yt-analytics-monetary.readonly');
 
   // Show the user exactly what to register in Google Cloud
   document.getElementById('oauth-uri-hint').textContent = redirectUri;
@@ -1493,49 +1573,117 @@ window.addEventListener('load', ()=>{
   }
 });
 
-function doUpload(){
-  const st=document.getElementById('pub-status');
+const YT_CATS={'Entertainment':'24','Education':'27','Comedy':'23','News & Politics':'25','Science & Technology':'28','People & Blogs':'22'};
+function setPubStatus(kind,html){ document.getElementById('pub-status').innerHTML=`<span class="dot dot-${kind}"></span>${html}`; }
+
+async function doUpload(){
   const pr=document.getElementById('pub-prog');
-  st.innerHTML='<span class="dot dot-spin"></span>Uploading...';
-  let p=0;
-  const iv=setInterval(()=>{ p=Math.min(p+Math.random()*12,95); pr.style.width=Math.round(p)+'%'; },400);
-  setTimeout(()=>{ clearInterval(iv); pr.style.width='100%'; st.innerHTML='<span class="dot dot-ok"></span>Uploaded! YouTube is processing your video...'; gs('Published!','ok'); mark('pub',true); },4500);
+  if(!window._assembledBlob){ setPubStatus('warn','Assemble the video first (step 5)'); return; }
+  if(!window._ytToken){ setPubStatus('warn','Connect your Google account first'); return; }
+  const blob=window._assembledBlob;
+  const title=(document.getElementById('yt-title').value||(script&&script.hook)||'Reddit video').slice(0,100);
+  const tags=document.getElementById('yt-tags').value.split(',').map(s=>s.trim()).filter(Boolean);
+  const meta={
+    snippet:{title,description:document.getElementById('yt-desc').value||'',tags,categoryId:YT_CATS[document.getElementById('yt-cat').value]||'24'},
+    status:{privacyStatus:document.getElementById('yt-priv').value,selfDeclaredMadeForKids:false}
+  };
+  try{
+    setPubStatus('spin','Starting upload...'); pr.style.width='0%'; gs('Uploading...','spin');
+    const init=await fetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',{
+      method:'POST',
+      headers:{Authorization:'Bearer '+window._ytToken,'Content-Type':'application/json; charset=UTF-8','X-Upload-Content-Length':String(blob.size),'X-Upload-Content-Type':blob.type||'video/mp4'},
+      body:JSON.stringify(meta)
+    });
+    if(!init.ok){
+      let m=''; try{ m=(await init.json()).error.message; }catch(e){}
+      if(init.status===401) window._ytToken=null;
+      throw new Error(`YouTube refused the upload (${init.status}) ${m}${init.status===401?' — reconnect your Google account':''}`);
+    }
+    const loc=init.headers.get('Location');
+    if(!loc) throw new Error('YouTube did not return an upload URL');
+    const res=await new Promise((resolve,reject)=>{
+      const x=new XMLHttpRequest(); x.open('PUT',loc);
+      x.setRequestHeader('Content-Type',blob.type||'video/mp4');
+      x.upload.onprogress=e=>{ if(e.lengthComputable){ const p=e.loaded/e.total*100; pr.style.width=Math.round(p)+'%'; setPubStatus('spin',`Uploading ${Math.round(p)}%...`); } };
+      x.onload=()=>{ if(x.status>=200&&x.status<300){ try{resolve(JSON.parse(x.responseText));}catch(e){reject(new Error('Bad response from YouTube'));} } else reject(new Error(`Upload failed (${x.status}) ${x.responseText.slice(0,200)}`)); };
+      x.onerror=()=>reject(new Error('Network error during upload'));
+      x.send(blob);
+    });
+    pr.style.width='100%';
+    window._lastVideoId=res.id; try{localStorage.setItem('last_video_id',res.id);}catch(e){}
+    setPubStatus('ok',`Uploaded! <a href="https://youtu.be/${res.id}" target="_blank" style="color:var(--blue)">youtu.be/${res.id}</a> — YouTube may take a few minutes to finish processing.`);
+    gs('Published!','ok'); mark('pub',true);
+  }catch(e){ console.error(e); setPubStatus('err',esc(e.message)); gs('Upload error','err'); }
 }
 
-function loadAnalytics(){
+function ytRange(days,offset){ const d=n=>new Date(Date.now()-n*864e5).toISOString().slice(0,10); return [d(days+offset),d(1+offset)]; }
+async function ytReport(params){
+  const u='https://youtubeanalytics.googleapis.com/v2/reports?'+new URLSearchParams({ids:'channel==MINE',...params});
+  const r=await fetch(u,{headers:{Authorization:'Bearer '+window._ytToken}});
+  const j=await r.json();
+  if(!r.ok){ if(r.status===401) window._ytToken=null; throw new Error((j.error&&j.error.message)||('HTTP '+r.status)); }
+  return j;
+}
+
+async function loadAnalytics(){
+  const set=(id,v)=>{ document.getElementById(id).textContent=v; };
+  if(!window._ytToken){ set('m-vd','Connect your Google account in step 6 first'); gs('Not connected','err'); return; }
   gs('Loading analytics...','spin');
-  setTimeout(()=>{
-    const vdata=[12,18,9,22,31,28,19,14,25,33,29,22,17,28,35,31,24,19,27,32,28,21,16,25,34,30,23,18,26,33];
-    document.getElementById('m-views').textContent='487K';
-    document.getElementById('m-vd').textContent='▲ 23% this week';
-    document.getElementById('m-wt').textContent='8,240';
-    document.getElementById('m-wtd').textContent='▲ 18% this week';
-    document.getElementById('m-subs').textContent='+1,204';
-    document.getElementById('m-subd').textContent='from this video';
-    document.getElementById('m-rev').textContent='$184';
-    document.getElementById('m-revd').textContent='Est. RPM $2.40';
-    const vc=document.getElementById('views-chart');
-    vc.innerHTML='';
-    const mx=Math.max(...vdata);
-    vdata.forEach(v=>{ const b=document.createElement('div'); b.className='mini-bar'; b.style.height=Math.round((v/mx)*52)+'px'; b.style.background='var(--blue)'; b.title=fmt(v*1000)+' views'; vc.appendChild(b); });
-    const rc=document.getElementById('ret-chart');
-    rc.innerHTML='';
-    let rv=100;
-    for(let i=0;i<30;i++){ rv=Math.max(rv-Math.random()*4,20); const b=document.createElement('div'); b.className='mini-bar'; b.style.height=Math.round(rv*0.52)+'px'; b.style.background=rv>60?'var(--green)':rv>40?'var(--orange)':'var(--red)'; rc.appendChild(b); }
-    const days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-    const dval=[38,42,51,67,88,92,71];
-    const dc=document.getElementById('dow-chart');
-    const dl=document.getElementById('dow-labels');
-    dc.innerHTML=''; dl.innerHTML='';
-    const dm=Math.max(...dval);
-    dval.forEach((v,i)=>{ const b=document.createElement('div'); b.style.cssText=`flex:1;height:${Math.round((v/dm)*56)}px;background:var(--blue);border-radius:2px 2px 0 0;opacity:.8;`; dc.appendChild(b); const l=document.createElement('div'); l.style.cssText='flex:1;text-align:center;font-size:9px;color:var(--text3);'; l.textContent=days[i]; dl.appendChild(l); });
+  try{
+    const [s60,e60]=ytRange(59,0);
+    const daily=await ytReport({startDate:s60,endDate:e60,metrics:'views,estimatedMinutesWatched,subscribersGained',dimensions:'day',sort:'day'});
+    const rows=daily.rows||[];
+    const last=rows.slice(-30), prev=rows.slice(0,Math.max(0,rows.length-30));
+    const sum=(a,i)=>a.reduce((n,r)=>n+(r[i]||0),0);
+    const pctd=(a,b)=>b>0?Math.round((a-b)/b*100):null;
+    const v=sum(last,1), pv=sum(prev,1), wt=sum(last,2)/60, pwt=sum(prev,2)/60, subs=sum(last,3);
+    set('m-views',fmt(v));
+    const dv=pctd(v,pv); set('m-vd',dv==null?'last 30 days':`${dv>=0?'▲':'▼'} ${Math.abs(dv)}% vs prior 30 days`);
+    set('m-wt',Math.round(wt).toLocaleString());
+    const dw=pctd(wt,pwt); set('m-wtd',dw==null?'last 30 days':`${dw>=0?'▲':'▼'} ${Math.abs(dw)}% vs prior 30 days`);
+    set('m-subs',(subs>=0?'+':'')+subs.toLocaleString()); set('m-subd','last 30 days');
+    let rev=null;
+    try{
+      const [s30,e30]=ytRange(29,0);
+      const rv=await ytReport({startDate:s30,endDate:e30,metrics:'estimatedRevenue'});
+      rev=(rv.rows&&rv.rows[0]&&rv.rows[0][0])||0;
+      set('m-rev','$'+rev.toFixed(2)); set('m-revd',v>0?`Est. RPM $${(rev/v*1000).toFixed(2)}`:'last 30 days');
+    }catch(e){ set('m-rev','—'); set('m-revd','Not monetized / permission not granted'); }
+
+    const vc=document.getElementById('views-chart'); vc.innerHTML='';
+    const vals=last.map(r=>r[1]), mx=Math.max(1,...vals);
+    last.forEach(r=>{ const b=document.createElement('div'); b.className='mini-bar'; b.style.height=Math.max(2,Math.round(r[1]/mx*52))+'px'; b.style.background='var(--blue)'; b.title=`${r[0]}: ${r[1]} views`; vc.appendChild(b); });
+    if(!last.length) vc.innerHTML='<div style="width:100%;text-align:center;color:var(--text3);font-size:11px;align-self:center">No views yet</div>';
+
+    const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], dow=[0,0,0,0,0,0,0];
+    last.forEach(r=>{ dow[new Date(r[0]+'T12:00:00').getDay()]+=r[1]; });
+    const dc=document.getElementById('dow-chart'), dl=document.getElementById('dow-labels'); dc.innerHTML=''; dl.innerHTML='';
+    const dm=Math.max(1,...dow);
+    dow.forEach((x,i)=>{ const b=document.createElement('div'); b.style.cssText=`flex:1;height:${Math.max(2,Math.round(x/dm*56))}px;background:var(--blue);border-radius:2px 2px 0 0;opacity:.8;`; b.title=x+' views'; dc.appendChild(b); const l=document.createElement('div'); l.style.cssText='flex:1;text-align:center;font-size:9px;color:var(--text3);'; l.textContent=days[i]; dl.appendChild(l); });
+
+    const rc=document.getElementById('ret-chart'); rc.innerHTML='';
+    let ret=null; const vid=window._lastVideoId||(()=>{try{return localStorage.getItem('last_video_id');}catch(e){return null;}})();
+    if(vid){
+      try{
+        const rr=await ytReport({startDate:'2020-01-01',endDate:new Date().toISOString().slice(0,10),metrics:'audienceWatchRatio',dimensions:'elapsedVideoTimeRatio',filters:'video=='+vid,sort:'elapsedVideoTimeRatio'});
+        ret=rr.rows||[];
+        ret.forEach(r=>{ const pc=Math.min(100,r[1]*100); const b=document.createElement('div'); b.className='mini-bar'; b.style.height=Math.max(2,Math.round(pc*0.52))+'px'; b.style.background=pc>60?'var(--green)':pc>40?'var(--orange)':'var(--red)'; b.title=`${Math.round(r[0]*100)}% in: ${Math.round(pc)}% watching`; rc.appendChild(b); });
+      }catch(e){ rc.innerHTML='<div style="width:100%;text-align:center;color:var(--text3);font-size:11px;align-self:center">Retention not available yet (needs a processed video with enough views)</div>'; }
+    } else rc.innerHTML='<div style="width:100%;text-align:center;color:var(--text3);font-size:11px;align-self:center">Upload a video from this app to see its retention curve</div>';
+
+    window._analytics={rows:last,rev,v,wt,subs};
     gs('Analytics loaded','ok');
-  },1200);
+  }catch(e){
+    console.error(e); set('m-vd','Error: '+e.message); gs('Analytics error','err');
+  }
 }
 
 function exportCSV(){
-  const csv='Metric,Value,Change\nViews,487000,+23%\nWatch Time (hrs),8240,+18%\nSubscribers,1204,+N/A\nRevenue,$184,+N/A\nRPM,$2.40,+N/A\n';
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='analytics.csv'; a.click();
+  const a=window._analytics;
+  if(!a){ alert('Load analytics first.'); return; }
+  let csv='date,views,minutes_watched,subscribers_gained\n'+a.rows.map(r=>r.join(',')).join('\n')+'\n';
+  csv+=`\nTotal views (30d),${a.v}\nWatch hours (30d),${a.wt.toFixed(1)}\nSubscribers gained (30d),${a.subs}\nEstimated revenue (30d),${a.rev==null?'n/a':a.rev}\n`;
+  const el=document.createElement('a'); el.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'})); el.download='analytics.csv'; el.click();
 }
 
 function sendSEO(){ window.parent?.postMessage({type:'user_message',text:'Help me optimize my YouTube title and description for SEO based on this Reddit post: '+( selPost?selPost.title:'(none selected)')},'*'); }
