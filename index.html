@@ -196,30 +196,42 @@ canvas{width:100%;display:block;}
 
 <!-- PANEL 0: SCRAPE -->
 <div class="panel active" id="p0">
-  <div class="notice">
-    <strong>Multi-source:</strong> Hacker News works with zero setup. The Guardian needs a free key at <a href="https://open-platform.theguardian.com" style="color:var(--blue)" target="_blank">open-platform.theguardian.com</a> — set <code>GUARDIAN_API_KEY</code> in Vercel env vars.
+  <div class="notice" id="source-notice">
+    <strong>Reddit</strong> via <a href="https://rss2json.com" style="color:var(--blue)" target="_blank">rss2json</a> — no key or login. Free tier returns up to 10 posts per fetch, with titles and authors but no vote counts.
   </div>
   <div class="row">
     <div class="field-group" style="flex:1;">
       <div class="field-label">Source</div>
       <select id="content-source" onchange="updateSourceUI()">
-        <option value="hn" selected>Hacker News (no setup)</option>
+        <option value="reddit" selected>Reddit (via rss2json)</option>
+        <option value="hn">Hacker News (no setup)</option>
         <option value="guardian">The Guardian (free key)</option>
-        <option value="reddit">Reddit (OAuth2 creds)</option>
       </select>
     </div>
     <div class="field-group" style="flex:1;">
-      <div class="field-label" id="query-label">Topic / section</div>
-      <input type="text" id="query-input" value="" placeholder="e.g. technology, science, AI">
+      <div class="field-label" id="query-label">Subreddit</div>
+      <input type="text" id="query-input" value="todayilearned" placeholder="e.g. todayilearned, worldnews">
     </div>
   </div>
   <div class="row">
     <div class="field-group">
       <div class="field-label">Sort by</div>
-      <select id="sort">
-        <option value="top" selected>Top / Best</option>
+      <select id="sort" onchange="updateTimeVisibility()">
+        <option value="hot">Hot</option>
+        <option value="top" selected>Top</option>
         <option value="new">New</option>
-        <option value="best">Best of HN</option>
+        <option value="rising">Rising</option>
+      </select>
+    </div>
+    <div class="field-group" id="time-group">
+      <div class="field-label">Time</div>
+      <select id="time-period">
+        <option value="hour">Hour</option>
+        <option value="day">Today</option>
+        <option value="week" selected>Week</option>
+        <option value="month">Month</option>
+        <option value="year">Year</option>
+        <option value="all">All time</option>
       </select>
     </div>
     <div class="field-group" style="max-width:70px;">
@@ -622,35 +634,96 @@ function mark(id,ok){ const d=document.getElementById('st-'+id); if(d) d.classNa
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fmt(n){ return n>=1000000?(n/1000000).toFixed(1)+'M':n>=1000?(n/1000).toFixed(1)+'K':String(n); }
 
+const SORT_OPTIONS={
+  reddit:[['hot','Hot'],['top','Top'],['new','New'],['rising','Rising']],
+  hn:[['top','Top'],['new','New'],['best','Best']],
+  guardian:[['top','Top']]
+};
+
+function updateTimeVisibility(){
+  const src=document.getElementById('content-source').value;
+  const sort=document.getElementById('sort').value;
+  document.getElementById('time-group').style.display=(src==='reddit'&&sort==='top')?'':'none';
+}
+
 function updateSourceUI(){
   const src=document.getElementById('content-source').value;
   const lbl=document.getElementById('query-label');
   const inp=document.getElementById('query-input');
-  if(src==='hn'){ lbl.textContent='Filter (optional)'; inp.placeholder='e.g. AI, climate, space'; }
-  else if(src==='guardian'){ lbl.textContent='Section'; inp.placeholder='e.g. technology, science, culture'; inp.value=inp.value||'technology'; }
-  else { lbl.textContent='Subreddit'; inp.placeholder='e.g. todayilearned, worldnews'; inp.value=inp.value||'todayilearned'; }
+  const notice=document.getElementById('source-notice');
+  const sortSel=document.getElementById('sort');
+  const prev=sortSel.value;
+  sortSel.innerHTML=SORT_OPTIONS[src].map(([v,l])=>`<option value="${v}">${l}</option>`).join('');
+  sortSel.value=SORT_OPTIONS[src].some(([v])=>v===prev)?prev:SORT_OPTIONS[src][0][0];
+  if(src==='reddit'){
+    lbl.textContent='Subreddit'; inp.placeholder='e.g. todayilearned, worldnews';
+    if(!inp.value||['technology'].includes(inp.value)) inp.value='todayilearned';
+    notice.innerHTML='<strong>Reddit</strong> via <a href="https://rss2json.com" style="color:var(--blue)" target="_blank">rss2json</a> — no key or login. Free tier returns up to 10 posts per fetch, with titles and authors but no vote counts.';
+  } else if(src==='hn'){
+    lbl.textContent='Filter (optional)'; inp.placeholder='e.g. AI, climate, space';
+    if(inp.value==='todayilearned'||inp.value==='technology') inp.value='';
+    notice.innerHTML='<strong>Hacker News</strong> works with zero setup.';
+  } else {
+    lbl.textContent='Section'; inp.placeholder='e.g. technology, science, culture';
+    if(!inp.value||inp.value==='todayilearned') inp.value='technology';
+    notice.innerHTML='<strong>The Guardian</strong> needs a free key at <a href="https://open-platform.theguardian.com" style="color:var(--blue)" target="_blank">open-platform.theguardian.com</a> — set <code>GUARDIAN_API_KEY</code> in Vercel env vars.';
+  }
+  updateTimeVisibility();
+}
+
+function htmlToText(html){
+  const doc=new DOMParser().parseFromString(html||'','text/html');
+  doc.querySelectorAll('table').forEach(t=>t.remove());
+  return (doc.body.textContent||'').replace(/\s+/g,' ').replace(/submitted by.*$/i,'').trim();
+}
+
+async function fetchRedditRss(sub,sort,time){
+  const clean=sub.replace(/^\/?r\//i,'').trim();
+  if(!/^[A-Za-z0-9_+]{2,50}$/.test(clean)) throw new Error('Enter a valid subreddit name, e.g. todayilearned');
+  let rssUrl=`https://www.reddit.com/r/${clean}/${sort}/.rss`;
+  if(sort==='top') rssUrl+=`?t=${time}`;
+  const r=await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
+  if(!r.ok) throw new Error(r.status===429?'rss2json rate limit hit — wait a minute and retry':`rss2json returned ${r.status}`);
+  const data=await r.json();
+  if(data.status!=='ok') throw new Error(data.message||'rss2json could not read that subreddit feed');
+  return (data.items||[]).map(i=>({
+    id:i.guid,
+    title:i.title,
+    score:null,
+    num_comments:null,
+    author:(i.author||'').replace(/^\/?u\//,'u/'),
+    url:i.link,
+    selftext:htmlToText(i.content||i.description).slice(0,500),
+    source:'reddit',
+    created_utc:Date.parse((i.pubDate||'').replace(' ','T')+'Z')/1000,
+    thumbnail:i.thumbnail||''
+  }));
 }
 
 async function scrape(){
   const src=document.getElementById('content-source').value;
   const sort=document.getElementById('sort').value;
-  const cnt=document.getElementById('count').value;
+  const cnt=parseInt(document.getElementById('count').value)||10;
   const query=document.getElementById('query-input').value.trim();
   const list=document.getElementById('post-list');
   const srcNames={hn:'Hacker News',guardian:'The Guardian',reddit:'Reddit'};
   list.innerHTML=`<div class="placeholder"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Fetching from ${srcNames[src]}...</div>`;
   gs('Fetching...','spin');
 
-  const params=new URLSearchParams({source:src,sort,limit:cnt});
-  if(query) params.set('query',query);
-  const fetchUrl=`/api/sources?${params}`;
-
   try{
-    const r=await fetch(fetchUrl);
-    const data=await r.json();
-    if(data.error) throw new Error(data.error);
-    renderPosts(data.posts);
-    gs(`${data.count} posts loaded from ${srcNames[src]}`,'ok');
+    let posts;
+    if(src==='reddit'){
+      posts=(await fetchRedditRss(query||'todayilearned',sort,document.getElementById('time-period').value)).slice(0,cnt);
+    } else {
+      const params=new URLSearchParams({source:src,sort,limit:cnt});
+      if(query) params.set('query',query);
+      const r=await fetch(`/api/sources?${params}`);
+      const data=await r.json();
+      if(data.error) throw new Error(data.error);
+      posts=data.posts;
+    }
+    renderPosts(posts);
+    gs(`${posts.length} posts loaded from ${srcNames[src]}`,'ok');
   }catch(e){
     list.innerHTML=`<div class="placeholder" style="color:var(--red)"><i class="ti ti-alert-circle"></i>Error: ${esc(e.message)}<br><small>Try Hacker News — it requires no setup</small></div>`;
     gs('Error','err');
@@ -671,8 +744,8 @@ function renderPosts(posts){
     const icon=srcIcon[p.source]||'ti-article';
     d.innerHTML=`<div class="post-title">${esc(p.title)}</div>
       <div class="post-meta">
-        <span class="score">▲ ${fmt(p.score)}</span>
-        <span>${fmt(p.num_comments)} comments</span>
+        ${p.score!=null?`<span class="score">▲ ${fmt(p.score)}</span>`:''}
+        ${p.num_comments!=null?`<span>${fmt(p.num_comments)} comments</span>`:''}
         <span>${esc(p.author||'')}</span>
         <span><i class="ti ${icon}" style="font-size:11px"></i> ${p.source||''}</span>
       </div>`;
@@ -700,7 +773,7 @@ function selectPost(p,el){
 function updateSrcPost(){
   if(!selPost) return;
   const el=document.getElementById('src-post');
-  el.textContent=`"${selPost.title.slice(0,100)}" — ▲${fmt(selPost.score)} upvotes`;
+  el.textContent=`"${selPost.title.slice(0,100)}"`+(selPost.score!=null?` — ▲${fmt(selPost.score)} upvotes`:'');
   el.style.color='var(--text)';
 }
 
@@ -740,7 +813,7 @@ async function genScript(){
 {"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","sentence 3","sentence 4","sentence 5","sentence 6"],"cta":"closing CTA 10-15 words","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description under 150 chars"}
 Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return JSON only.`;
 
-  const userMsg=`Story: "${selPost.title}"\nDetails: ${selPost.selftext?selPost.selftext.slice(0,400):'(no body)'}\nScore: ${selPost.score}`;
+  const userMsg=`Story: "${selPost.title}"\nDetails: ${selPost.selftext?selPost.selftext.slice(0,400):'(no body)'}`+(selPost.score!=null?`\nScore: ${selPost.score}`:'');
 
   try{
     let txt='';
