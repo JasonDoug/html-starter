@@ -1527,6 +1527,7 @@ document.querySelectorAll('#platform-pills .pill').forEach(b=>{
 function syncPreset(){ const cfg=presets[curPreset]; document.getElementById('sb-preset').textContent=cfg.label+' · '+curGenre; if(document.getElementById('out-res').value) document.getElementById('out-res').value=cfg.res; }
 
 loadVoices();
+try{document.getElementById('rss2json-key').value=localStorage.getItem('rss2json_key')||'';}catch(e){}
 </script>
 </body>
 </html>
