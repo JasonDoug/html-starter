@@ -700,7 +700,7 @@ function parseRedditAtom(xml){
 async function fetchRedditRss(sub,sort,time){
   const clean=sub.replace(/^\/?r\//i,'').trim();
   if(!/^[A-Za-z0-9_+]{2,50}$/.test(clean)) throw new Error('Enter a valid subreddit name, e.g. todayilearned');
-  let rssUrl=`https://www.reddit.com/r/${clean}/${sort}/.rss`;
+  let rssUrl=sort==='hot'?`https://www.reddit.com/r/${clean}.rss`:`https://www.reddit.com/r/${clean}/${sort}.rss`;
   if(sort==='top') rssUrl+=`?t=${time}`;
   let key='';
   try{key=(document.getElementById('rss2json-key').value||'').trim();localStorage.setItem('rss2json_key',key);}catch(e){}
