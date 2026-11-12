@@ -199,6 +199,10 @@ canvas{width:100%;display:block;}
   <div class="notice" id="source-notice">
     <strong>Reddit</strong> via <a href="https://rss2json.com" style="color:var(--blue)" target="_blank">rss2json</a> — no key or login. Free tier returns up to 10 posts per fetch, with titles and authors but no vote counts.
   </div>
+  <div class="field-group" id="rss-key-group" style="margin-bottom:10px;">
+    <div class="field-label">rss2json API key (optional, free — rss2json.com, raises rate limits)</div>
+    <input type="password" id="rss2json-key" placeholder="paste key to avoid rate-limit errors" autocomplete="off">
+  </div>
   <div class="row">
     <div class="field-group" style="flex:1;">
       <div class="field-label">Source</div>
@@ -647,6 +651,7 @@ function updateTimeVisibility(){
 }
 
 function updateSourceUI(){
+  try{const k=document.getElementById('rss2json-key');if(k&&!k.value)k.value=localStorage.getItem('rss2json_key')||'';document.getElementById('rss-key-group').style.display=document.getElementById('content-source').value==='reddit'?'':'none';}catch(e){}
   const src=document.getElementById('content-source').value;
   const lbl=document.getElementById('query-label');
   const inp=document.getElementById('query-input');
@@ -682,10 +687,29 @@ async function fetchRedditRss(sub,sort,time){
   if(!/^[A-Za-z0-9_+]{2,50}$/.test(clean)) throw new Error('Enter a valid subreddit name, e.g. todayilearned');
   let rssUrl=`https://www.reddit.com/r/${clean}/${sort}/.rss`;
   if(sort==='top') rssUrl+=`?t=${time}`;
-  const r=await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`);
-  if(!r.ok) throw new Error(r.status===429?'rss2json rate limit hit — wait a minute and retry':`rss2json returned ${r.status}`);
-  const data=await r.json();
-  if(data.status!=='ok') throw new Error(data.message||'rss2json could not read that subreddit feed');
+  let key='';
+  try{key=(document.getElementById('rss2json-key').value||'').trim();localStorage.setItem('rss2json_key',key);}catch(e){}
+  let url=`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
+  if(key) url+=`&api_key=${encodeURIComponent(key)}&count=25`;
+  let data=null,lastErr='';
+  for(let attempt=0;attempt<4;attempt++){
+    if(attempt){
+      const wait=attempt*3;
+      for(let s=wait;s>0;s--){
+        gs(`rss2json busy — retrying in ${s}s (attempt ${attempt+1}/4)`,'spin');
+        await new Promise(r=>setTimeout(r,1000));
+      }
+    }
+    try{
+      const r=await fetch(url);
+      let j=null; try{j=await r.json();}catch(e){}
+      if(r.ok && j && j.status==='ok'){data=j;break;}
+      lastErr=(j&&j.message)||`rss2json returned ${r.status}`;
+      const retryable=r.status===429||r.status>=500||/rate|limit|busy/i.test(lastErr);
+      if(!retryable) break;
+    }catch(e){lastErr='Network error reaching rss2json';}
+  }
+  if(!data) throw new Error(lastErr+(/rate|limit|429|503/i.test(lastErr)?' — add a free rss2json API key below for higher limits':''));
   return (data.items||[]).map(i=>({
     id:i.guid,
     title:i.title,
