@@ -707,7 +707,16 @@ function parseRedditAtom(xml){
   });
 }
 function tfetch(u,ms=12000){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);return fetch(u,{signal:c.signal}).finally(()=>clearTimeout(t));}
+const _rssCache=new Map();
 async function fetchRedditRss(sub,sort,time){
+  const ck=`${sub}|${sort}|${time}`.toLowerCase(), hit=_rssCache.get(ck);
+  if(hit && Date.now()-hit.t<5*60*1000) return hit.posts;
+  if(hit && hit.p) return hit.p;
+  const p=fetchRedditRssUncached(sub,sort,time).then(posts=>{ _rssCache.set(ck,{t:Date.now(),posts}); return posts; })
+    .catch(e=>{ _rssCache.delete(ck); throw e; });
+  _rssCache.set(ck,{t:0,p}); return p;
+}
+async function fetchRedditRssUncached(sub,sort,time){
   const clean=sub.replace(/^\/?r\//i,'').trim();
   if(!/^[A-Za-z0-9_+]{2,50}$/.test(clean)) throw new Error('Enter a valid subreddit name, e.g. todayilearned');
   let rssUrl=sort==='hot'?`https://www.reddit.com/r/${clean}.rss`:`https://www.reddit.com/r/${clean}/${sort}.rss`;
@@ -760,7 +769,13 @@ async function fetchRedditRss(sub,sort,time){
   throw new Error('Reddit is throttling every free proxy right now ('+errs.slice(-4).join('; ')+'). Wait a minute and retry, or use Hacker News.');
 }
 
+let _scraping=false, _lastPosts=null;
 async function scrape(){
+  if(_scraping) return;
+  _scraping=true;
+  try{ await scrapeInner(); } finally{ _scraping=false; }
+}
+async function scrapeInner(){
   const src=document.getElementById('content-source').value;
   const sort=document.getElementById('sort').value;
   const cnt=parseInt(document.getElementById('count').value)||10;
@@ -782,9 +797,11 @@ async function scrape(){
       if(data.error) throw new Error(data.error);
       posts=data.posts;
     }
+    _lastPosts=posts;
     renderPosts(posts);
     gs(`${posts.length} posts loaded from ${srcNames[src]}`,'ok');
   }catch(e){
+    if(_lastPosts&&_lastPosts.length){ renderPosts(_lastPosts); gs('Fetch failed — showing previous posts: '+e.message.slice(0,120),'err'); return; }
     list.innerHTML=`<div class="placeholder" style="color:var(--red)"><i class="ti ti-alert-circle"></i>Error: ${esc(e.message)}<br><small>Try Hacker News — it requires no setup</small></div>`;
     gs('Error','err');
   }

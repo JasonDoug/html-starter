@@ -16,6 +16,8 @@ function shim(res) {
   return res;
 }
 
+const rssCache=new Map();
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
   try {
@@ -26,10 +28,21 @@ http.createServer(async (req, res) => {
     if (u.pathname === '/api/rss') {
       const target = new URL(u.searchParams.get('url') || '');
       if (!/(^|\.)reddit\.com$/.test(target.hostname)) { res.statusCode = 400; return res.end('reddit.com only'); }
-      const r = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) RedditVideoStudio/1.0', Accept: 'application/atom+xml,application/xml,text/xml' } });
-      res.statusCode = r.status;
+      const key = target.href, c = rssCache.get(key);
       res.setHeader('Content-Type', 'application/xml');
-      return res.end(await r.text());
+      if (c && Date.now() - c.t < 5 * 60 * 1000) { res.statusCode = 200; return res.end(c.body); }
+      let r, body;
+      for (let i = 0; i < 3; i++) {
+        r = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) RedditVideoStudio/1.0', Accept: 'application/atom+xml,application/xml,text/xml' }, signal: AbortSignal.timeout(15000) });
+        body = await r.text();
+        if (r.status !== 429 && r.status < 500) break;
+        const ra = parseInt(r.headers.get('retry-after')) || (2 + i * 3);
+        await sleep(Math.min(ra, 8) * 1000);
+      }
+      if (r.ok) rssCache.set(key, { t: Date.now(), body });
+      else if (c) { res.statusCode = 200; return res.end(c.body); } // serve stale on failure
+      res.statusCode = r.status;
+      return res.end(body);
     }
     const file = u.pathname === '/' ? 'index.html' : u.pathname.slice(1);
     if (file.includes('..') || file.startsWith('api') || file === 'server.mjs') { res.statusCode = 404; return res.end('Not found'); }
