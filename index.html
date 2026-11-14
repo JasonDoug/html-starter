@@ -239,7 +239,7 @@ canvas{width:100%;display:block;}
       </select>
     </div>
     <div class="field-group" style="max-width:70px;">
-      <div class="field-label">Count</div>
+      <div class="field-label">Count*</div>
       <input type="number" id="count" value="10" min="1" max="25">
     </div>
     <div class="field-group" style="justify-content:flex-end;">
@@ -371,11 +371,11 @@ canvas{width:100%;display:block;}
 <div class="panel" id="p3">
   <div class="row">
     <div class="field-group" style="flex:2;">
-      <div class="field-label">Image search query</div>
-      <input type="text" id="img-query" placeholder="Auto-filled from post topic — or type your own">
+      <div class="field-label">Search override (optional)</div>
+      <input type="text" id="img-query" placeholder="Default: one image per script line — type to force a topic">
     </div>
     <div class="field-group" style="max-width:70px;">
-      <div class="field-label">Count</div>
+      <div class="field-label">Count*</div>
       <input type="number" id="img-count" value="6" min="2" max="12">
     </div>
     <div class="field-group" style="justify-content:flex-end;">
@@ -887,7 +887,7 @@ async function genScript(){
   gs('Generating...','spin');
 
   const sys=`You are a viral video scriptwriter. Generate a ${curGenre} ${cfg.label} script. Return ONLY valid JSON, no markdown, no backticks:
-{"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","sentence 3","sentence 4","sentence 5","sentence 6"],"cta":"closing CTA 10-15 words","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description under 150 chars"}
+{"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","sentence 3","sentence 4","sentence 5","sentence 6"],"cta":"closing CTA 10-15 words","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description under 150 chars","visuals":["a 2-4 word concrete photo search query for the hook","one for body sentence 1","one for body sentence 2","one per remaining body sentence, in order","one for the cta"]}
 Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return JSON only.`;
 
   const userMsg=`Story: "${selPost.title}"\nDetails: ${selPost.selftext?selPost.selftext.slice(0,400):'(no body)'}`+(selPost.score!=null?`\nScore: ${selPost.score}`:'');
@@ -1151,112 +1151,95 @@ function animWave(){
 }
 
 // ── Image fetching via Wikimedia Commons — truly free, no key, open CORS ──────
-let loadedImages = [];
+let loadedImages = [], beatMeta = [], _imgRun = 0;
+const IMG_STOP = new Set(['the','and','but','for','with','from','that','this','they','them','their','there','then','than','have','has','had','been','were','was','are','you','your','just','about','after','before','what','when','where','which','who','why','how','will','would','could','should','into','over','also','more','most','some','such','very','even','only','like','really','follow','subscribe','comment','share','part','know','think','people','thing','things','every','still','because','while','does','doesn','don']);
+
+function beatQuery(text){
+  const w = text.toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(x => x.length > 3 && !IMG_STOP.has(x));
+  const top = w.map((x,i)=>({x,i})).sort((a,b)=>b.x.length-a.x.length).slice(0,3).sort((a,b)=>a.i-b.i);
+  return top.map(o=>o.x).join(' ');
+}
+function getBeats(){ return script ? [script.hook,...(script.body||[]),script.cta].filter(Boolean) : []; }
+
+function loadImg(url, ms=12000){
+  return new Promise(res => {
+    const im = new Image(); im.crossOrigin = 'anonymous';
+    const t = setTimeout(() => { im.onload = im.onerror = null; im.src = ''; res(null); }, ms);
+    im.onload = () => { clearTimeout(t); res(im); };
+    im.onerror = () => { clearTimeout(t); res(null); };
+    im.src = url;
+  });
+}
+
+async function commonsSearch(q, used){
+  const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(q+' filetype:bitmap')}&gsrlimit=15&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1600&format=json&origin=*`;
+  const r = await tfetch(url, 10000);
+  const d = await r.json();
+  return Object.values(d?.query?.pages || {})
+    .sort((a,b) => (a.index||0) - (b.index||0))
+    .map(p => ({ title: p.title, ii: p.imageinfo && p.imageinfo[0] }))
+    .filter(x => x.ii && /^image\/(jpeg|png|webp)/.test(x.ii.mime||'') && (x.ii.width||0) >= 500 && !used.has(x.title))
+    .map(x => ({ title: x.title, url: x.ii.thumburl || x.ii.url }));
+}
+
+async function imageForBeat(i, q, fallbackQ, used, W, H){
+  const words = q.split(' ').filter(Boolean);
+  const tries = [q, words.length > 2 ? words.slice(0,2).join(' ') : '', words.length > 1 ? words[0] : '', fallbackQ].filter((x,k,a) => x && a.indexOf(x) === k);
+  for(const tq of tries){
+    try{
+      const cands = await commonsSearch(tq, used);
+      for(const c of cands.slice(0,3)){
+        const im = await loadImg(c.url);
+        if(im){ used.add(c.title); return { im, thumb: c.url, q: tq, src: 'wikimedia' }; }
+      }
+    }catch(e){ /* try next query */ }
+  }
+  const im = await loadImg(`https://picsum.photos/seed/rvs${i}${encodeURIComponent(q||'x')}/${W}/${H}`);
+  return im ? { im, thumb: im.src, q, src: 'generic' } : null;
+}
 
 async function fetchImages(){
-  let query = document.getElementById('img-query').value.trim();
-  if(!query && selPost){
-    const stopWords = new Set(['the','a','an','is','are','was','were','in','on','at','to','for','of','and','or','but','i','my','we','they','you','it','this','that','with','from','how','why','what','when','who','has','have','had','its','be','been','can','will','just','about','after','before','so','than','then','as']);
-    const words = selPost.title.toLowerCase().replace(/[^a-z0-9 ]/g,'').split(' ').filter(w=>w.length>3&&!stopWords.has(w));
-    query = words.slice(0,3).join(' ') || 'nature landscape';
-    document.getElementById('img-query').value = query;
-  }
-  const count = parseInt(document.getElementById('img-count').value) || 6;
+  const run = ++_imgRun;
+  const override = document.getElementById('img-query').value.trim();
   const grid = document.getElementById('img-grid');
-  grid.innerHTML = '<div style="color:var(--text3);font-size:12px;padding:8px;display:flex;align-items:center;gap:6px;"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i>Searching Wikimedia Commons...</div>';
-  gs('Fetching images...','spin');
-  document.getElementById('pexels-notice').innerHTML = '<strong>Wikimedia Commons</strong> — millions of freely licensed photos, zero cost, no account needed.';
-
-  loadedImages = [];
-  grid.innerHTML = '';
-
-  try{
-    // Wikimedia Commons image search — open CORS, completely free
-    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(query)}&gsrlimit=${Math.min(count*3,30)}&prop=imageinfo&iiprop=url|dimensions|mime&iiurlwidth=1080&format=json&origin=*`;
-    const r = await fetch(url);
-    const data = await r.json();
-    const pages = Object.values(data?.query?.pages || {});
-
-    // Filter to actual photos (not SVG, not tiny, not icons)
-    const photos = pages
-      .filter(p => {
-        const ii = p.imageinfo?.[0];
-        if(!ii) return false;
-        const mime = ii.mime || '';
-        const w = ii.thumbwidth || ii.width || 0;
-        const h = ii.thumbheight || ii.height || 0;
-        return mime.startsWith('image/jpeg') || mime.startsWith('image/png') || mime.startsWith('image/webp');
-      })
-      .slice(0, count);
-
-    if(photos.length === 0){
-      // Fallback: Picsum random photos (beautiful, always available, truly free)
-      grid.innerHTML = '';
-      document.getElementById('pexels-notice').innerHTML = '<strong>Picsum Photos</strong> — random high-quality stock photos (Wikimedia had no results for this query).';
-      const preset = document.getElementById('out-res')?.value || '1080x1920';
-      const isVertical = !preset.includes('1920x1080');
-      const w = isVertical ? 1080 : 1920;
-      const h = isVertical ? 1920 : 1080;
-      let loaded = 0;
-      for(let i = 0; i < count; i++){
-        const wrap = document.createElement('div');
-        wrap.style.cssText = 'position:relative;border-radius:4px;overflow:hidden;border:2px solid var(--border);cursor:pointer;';
-        const imgUrl = `https://picsum.photos/${w}/${h}?random=${Date.now()+i}`;
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          loadedImages[i] = img;
-          loaded++;
-          const thumb = document.createElement('img');
-          thumb.src = img.src;
-          thumb.style.cssText = 'width:72px;height:96px;object-fit:cover;display:block;';
-          wrap.appendChild(thumb);
-          wrap.onclick = () => wrap.style.borderColor = wrap.style.borderColor==='var(--blue)'?'var(--border)':'var(--blue)';
-          if(loaded===count){ gs(`${loaded} images ready`,'ok'); mark('vis',true); }
-        };
-        img.src = imgUrl;
-        wrap.innerHTML = '<div style="width:72px;height:96px;display:flex;align-items:center;justify-content:center;"><i class="ti ti-loader" style="animation:pulse 1s infinite;color:var(--text3)"></i></div>';
-        grid.appendChild(wrap);
-      }
-      return;
-    }
-
-    // Render Wikimedia results
-    let loaded = 0;
-    photos.forEach((p, i) => {
-      const ii = p.imageinfo[0];
-      const thumbUrl = ii.thumburl || ii.url;
-      const wrap = document.createElement('div');
-      wrap.style.cssText = 'position:relative;border-radius:4px;overflow:hidden;border:2px solid var(--border);cursor:pointer;';
-      wrap.innerHTML = '<div style="width:72px;height:96px;display:flex;align-items:center;justify-content:center;"><i class="ti ti-loader" style="animation:pulse 1s infinite;color:var(--text3)"></i></div>';
-      grid.appendChild(wrap);
-      wrap.onclick = () => wrap.style.borderColor = wrap.style.borderColor==='var(--blue)'?'var(--border)':'var(--blue)';
-
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        loadedImages[i] = img;
-        loaded++;
-        wrap.innerHTML = '';
-        const thumb = document.createElement('img');
-        thumb.src = thumbUrl;
-        thumb.style.cssText = 'width:72px;height:96px;object-fit:cover;display:block;';
-        wrap.appendChild(thumb);
-        if(loaded === photos.length){
-          gs(`${loaded} images ready`,'ok');
-          mark('vis',true);
-          document.getElementById('pexels-notice').innerHTML = `<strong>✓ ${loaded} images</strong> from Wikimedia Commons — click Preview Ken Burns`;
-        }
-      };
-      img.onerror = () => { loaded++; wrap.innerHTML = '<div style="width:72px;height:96px;background:var(--bg3)"></div>'; };
-      img.src = thumbUrl;
-    });
-
-    gs(`Loading ${photos.length} images...`,'spin');
-  }catch(e){
-    grid.innerHTML = `<div style="color:var(--red);font-size:12px;padding:8px;">${esc(e.message)}</div>`;
-    gs('Image fetch error','err');
+  const notice = document.getElementById('pexels-notice');
+  const [W,H] = (document.getElementById('out-res').value || '1080x1920').split('x').map(Number);
+  let beats = getBeats(), queries;
+  if(beats.length){
+    queries = beats.map((b,i) => ((script.visuals && script.visuals[i]) || beatQuery(b) || '').toString().trim());
+  } else {
+    const n = parseInt(document.getElementById('img-count').value) || 6;
+    const topic = override || (selPost ? beatQuery(selPost.title) : '') || 'nature landscape';
+    beats = Array(n).fill(topic); queries = beats.slice();
   }
+  const fallbackQ = override || (selPost ? beatQuery(selPost.title) : '');
+  loadedImages = []; beatMeta = []; grid.innerHTML = '';
+  gs('Finding images...','spin');
+  notice.innerHTML = `<strong>Matching one image to each of ${beats.length} script beats</strong> via Wikimedia Commons...`;
+  const used = new Set(); let generic = 0;
+  for(let i = 0; i < beats.length; i++){
+    if(run !== _imgRun) return; // a newer fetch started
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'width:84px;font-size:9px;color:var(--text3);';
+    wrap.innerHTML = `<div style="width:84px;height:112px;border-radius:4px;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;"><i class="ti ti-loader" style="animation:pulse 1s infinite"></i></div><div style="margin-top:2px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${esc(queries[i]||'…')}</div>`;
+    grid.appendChild(wrap);
+    gs(`Finding image ${i+1}/${beats.length}: ${queries[i]||'…'}`,'spin');
+    const res = await imageForBeat(i, queries[i] || fallbackQ || 'nature', override ? fallbackQ : '', used, W, H);
+    if(run !== _imgRun) return;
+    if(res){
+      loadedImages[i] = res.im; beatMeta[i] = res;
+      if(res.src === 'generic') generic++;
+      wrap.firstChild.style.cssText = `width:84px;height:112px;border-radius:4px;border:2px solid ${res.src==='generic'?'var(--orange)':'var(--border)'};background:url('${res.thumb}') center/cover;`;
+      wrap.firstChild.title = res.src === 'generic' ? 'No match found — generic stock photo' : 'Matched: ' + res.q;
+    } else {
+      wrap.firstChild.innerHTML = '<span style="color:var(--red)">failed</span>';
+    }
+  }
+  const ok = loadedImages.filter(Boolean).length;
+  mark('vis', ok > 0);
+  if(!ok){ gs('No images could be loaded','err'); notice.innerHTML = '<span style="color:var(--red)">No images loaded — check your connection and retry. Assembly will use a gradient background.</span>'; return; }
+  gs(`${ok} images ready`,'ok');
+  notice.innerHTML = `<strong>✓ ${ok} of ${beats.length} beats have images</strong>${generic ? ` — ${generic} used generic stock (orange border) because nothing matched` : ' — all matched to their lines'}. Each image shows while its line is spoken. Edit the query box to override, then fetch again.`;
 }
 
 
@@ -1283,8 +1266,19 @@ function buildRenderState(){
   const w2c=[]; chunks.forEach((c,ci)=>c.forEach(i=>w2c[i]=ci));
   const color=document.getElementById('cap-color').value;
   const slideLen=imgs.length>1?Math.min(6,Math.max(3,duration/imgs.length)):Math.max(duration,1);
+  // segments: each script beat gets its own image, timed to when that line is spoken
+  const segs=[]; const beats=getBeats();
+  if(beats.length && loadedImages.length===beats.length && imgs.length){
+    let wi=0; const fill=loadedImages.map(x=>x||null); const firstOk=fill.find(Boolean);
+    beats.forEach((b,k)=>{ const n=b.split(/\s+/).filter(Boolean).length; const start=k===0?0:(words[Math.min(wi,words.length-1)]||{t:0}).t; segs.push({start,img:fill[k]||firstOk}); wi+=n; });
+    segs.forEach((sg,k)=>{ sg.end=k<segs.length-1?segs[k+1].start:duration+0.5; });
+  } else if(imgs.length){
+    const nseg=Math.max(1,Math.ceil(duration/slideLen));
+    for(let k=0;k<nseg;k++) segs.push({start:k*slideLen,end:(k+1)*slideLen,img:imgs[k%imgs.length]});
+    segs[segs.length-1].end=duration+0.5;
+  }
   return {
-    imgs,words,chunks,w2c,duration,slideLen,
+    imgs,words,chunks,w2c,duration,slideLen,segs,
     fx:document.getElementById('kb-fx').value,
     trans:(document.getElementById('trans').value||'Crossfade'),
     font:document.getElementById('cap-font').value,
@@ -1314,26 +1308,26 @@ function renderFrame(ctx,W,H,t,S){
   let pulse=1;
   if(S.beat==='bpm'){ const ph=(t*S.bpm/60)%1; pulse=1+0.035*Math.pow(1-ph,3); }
   else if(S.beat==='auto'){ let last=-9; for(const bt of S.beatTimes){ if(bt<=t) last=bt; else break; } pulse=1+0.035*Math.pow(Math.max(0,1-(t-last)/0.35),2); }
-  const n=S.imgs.length;
-  if(n){
-    const idx=Math.floor(t/S.slideLen), local=t-idx*S.slideLen, p=local/S.slideLen;
+  if(S.segs.length){
+    const segs=S.segs; let si=segs.length-1;
+    for(let k=0;k<segs.length;k++){ if(t<segs[k].end){ si=k; break; } }
+    const sg=segs[si], len=Math.max(0.01,sg.end-sg.start), local=Math.max(0,t-sg.start), p=Math.min(1,local/len);
     const fxAt=k=>S.fx==='auto'?KB_FX[k%4]:S.fx;
-    const cur=S.imgs[idx%n], nxt=S.imgs[(idx+1)%n];
-    const FADE=0.6, remain=S.slideLen-local;
-    const doTrans=n>1 && S.trans!=='Hard cut' && remain<FADE && t+remain<S.duration;
-    if(!doTrans) drawKB(ctx,cur,W,H,fxAt(idx),p,1,pulse);
+    const nxt=segs[si+1], FADE=Math.min(0.6,len*0.4), remain=sg.end-t;
+    const doTrans=nxt && S.trans!=='Hard cut' && remain<FADE && remain>0 && nxt.img!==sg.img;
+    if(!doTrans) drawKB(ctx,sg.img,W,H,fxAt(si),p,1,pulse);
     else {
       const q=1-remain/FADE;
       if(S.trans==='Wipe'){
-        drawKB(ctx,cur,W,H,fxAt(idx),p,1,pulse);
+        drawKB(ctx,sg.img,W,H,fxAt(si),p,1,pulse);
         ctx.save(); ctx.beginPath(); ctx.rect(0,0,W*q,H); ctx.clip();
-        drawKB(ctx,nxt,W,H,fxAt(idx+1),0,1,pulse); ctx.restore();
+        drawKB(ctx,nxt.img,W,H,fxAt(si+1),0,1,pulse); ctx.restore();
       } else if(S.trans==='Zoom through'){
-        drawKB(ctx,nxt,W,H,fxAt(idx+1),0,q,pulse);
-        drawKB(ctx,cur,W,H,fxAt(idx),p,1-q,pulse*(1+q*0.4));
+        drawKB(ctx,nxt.img,W,H,fxAt(si+1),0,q,pulse);
+        drawKB(ctx,sg.img,W,H,fxAt(si),p,1-q,pulse*(1+q*0.4));
       } else {
-        drawKB(ctx,cur,W,H,fxAt(idx),p,1,pulse);
-        drawKB(ctx,nxt,W,H,fxAt(idx+1),0,q,pulse);
+        drawKB(ctx,sg.img,W,H,fxAt(si),p,1,pulse);
+        drawKB(ctx,nxt.img,W,H,fxAt(si+1),0,q,pulse);
       }
     }
   } else {
@@ -1351,7 +1345,7 @@ function renderFrame(ctx,W,H,t,S){
     const fs=Math.round(Math.min(W,H)*0.085);
     ctx.font=`bold ${fs}px ${S.font}, sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.lineJoin='round';
-    const gap=fs*0.4, widths=chunk.map(i=>ctx.measureText(S.words[i].word.toUpperCase()).width);
+    const gap=fs*0.55, widths=chunk.map(i=>ctx.measureText(S.words[i].word.toUpperCase()).width);
     const total=widths.reduce((a,b)=>a+b,0)+gap*(chunk.length-1), maxW=W*0.88;
     const lines=(total>maxW&&chunk.length>1)?[chunk.slice(0,Math.ceil(chunk.length/2)),chunk.slice(Math.ceil(chunk.length/2))]:[chunk];
     const baseY=H>W?H*0.68:H*0.82;
@@ -1360,7 +1354,7 @@ function renderFrame(ctx,W,H,t,S){
       let x=W/2-lw/2; const y=baseY+(li-(lines.length-1)/2)*fs*1.2;
       ln.forEach(i=>{
         const w=widths[chunk.indexOf(i)], active=i===wi, age=t-S.words[i].t;
-        const s=active?1+0.32*Math.max(0,1-age/0.18):1;
+        const s=active?1+0.18*Math.max(0,1-age/0.18):1;
         ctx.save(); ctx.translate(x+w/2,y); ctx.scale(s,s);
         ctx.lineWidth=fs*0.16; ctx.strokeStyle='rgba(0,0,0,0.9)';
         const txt=S.words[i].word.toUpperCase();
