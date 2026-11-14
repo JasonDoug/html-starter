@@ -83,7 +83,7 @@ textarea{resize:vertical;min-height:70px;}
 .score{color:var(--orange);font-weight:600;}
 
 /* SCRIPT */
-.segments{display:flex;flex-direction:column;gap:5px;max-height:300px;overflow-y:auto;}
+.segments{display:flex;flex-direction:column;gap:5px;}
 .seg{padding:10px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--bg3);}
 .seg-type{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px;}
 .seg-text{font-size:13px;line-height:1.5;color:var(--text);}
@@ -969,7 +969,7 @@ Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return 
     if(script.tags) document.getElementById('yt-tags').value=script.tags.join(', ');
     if(script.description) document.getElementById('yt-desc').value=script.description;
     mark('script',true);
-    gs('Script ready','ok');
+    gs(`Script ready — ${1+script.body.length+1} beats, ends with engagement CTA`,'ok');
   }catch(e){
     seg.innerHTML=`<div class="placeholder" style="color:var(--red)"><i class="ti ti-alert-circle"></i>Error: ${esc(e.message)}<br><small>Check your API key and try again</small></div>`;
     gs('Script error','err');
