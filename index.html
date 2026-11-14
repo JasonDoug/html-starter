@@ -1154,7 +1154,7 @@ function animWave(){
 }
 
 // ── Image fetching via Wikimedia Commons — truly free, no key, open CORS ──────
-let loadedImages = [], beatMeta = [], _imgRun = 0;
+let loadedImages = [], beatMeta = [], _imgRun = 0, imagesSig = '';
 const IMG_STOP = new Set(['the','and','but','for','with','from','that','this','they','them','their','there','then','than','have','has','had','been','were','was','are','you','your','just','about','after','before','what','when','where','which','who','why','how','will','would','could','should','into','over','also','more','most','some','such','very','even','only','like','really','follow','subscribe','comment','share','part','know','think','people','thing','things','every','still','because','while','does','doesn','don']);
 
 function beatQuery(text){
@@ -1217,6 +1217,7 @@ async function fetchImages(){
   }
   const fallbackQ = override || (selPost ? beatQuery(selPost.title) : '');
   loadedImages = []; beatMeta = []; grid.innerHTML = '';
+  imagesSig = getBeats().length ? getBeats().join('|') : '';
   gs('Finding images...','spin');
   notice.innerHTML = `<strong>Matching one image to each of ${beats.length} script beats</strong> via Wikimedia Commons...`;
   const used = new Set(); let generic = 0;
@@ -1268,7 +1269,7 @@ function buildRenderState(){
   if(cur.length) chunks.push(cur);
   const w2c=[]; chunks.forEach((c,ci)=>c.forEach(i=>w2c[i]=ci));
   const color=document.getElementById('cap-color').value;
-  const slideLen=imgs.length>1?Math.min(6,Math.max(3,duration/imgs.length)):Math.max(duration,1);
+  const slideLen=imgs.length>1?duration/imgs.length:Math.max(duration,1);
   // segments: each script beat gets its own image, timed to when that line is spoken
   const segs=[]; const beats=getBeats();
   if(beats.length && loadedImages.length===beats.length && imgs.length){
@@ -1376,7 +1377,7 @@ function startKB(){
   stopKB();
   const cv=document.getElementById('cvs'), ctx=cv.getContext('2d');
   const S=buildRenderState();
-  const loopLen=Math.max(4,Math.min(S.duration,20));
+  const loopLen=Math.max(4,Math.min(S.duration+0.5,120));
   const t0=performance.now();
   const frame=()=>{
     const t=((performance.now()-t0)/1000)%loopLen;
@@ -1439,12 +1440,19 @@ async function assemble(){
     if(!wordTimings.length) throw new Error('Record the voiceover first (step 3)');
     stopKB(); stopVoicePreview();
 
+    const curSig=getBeats().join('|');
+    if(curSig && (imagesSig!==curSig || loadedImages.filter(Boolean).length===0)){
+      addLog('[0] Images are missing or out of date with the current script — fetching one per line...','warn');
+      gs('Fetching images...','spin');
+      await fetchImages();
+    }
     setStep('as0','spin'); addLog('[1] Preparing renderer...'); gs('Preparing...','spin');
     const S=buildRenderState();
     const [W,H]=document.getElementById('out-res').value.split('x').map(Number);
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
     const ctx=cv.getContext('2d');
-    addLog(`    ✓ ${W}×${H}, ${S.duration.toFixed(1)}s, ${S.words.length} captioned words, ${S.imgs.length} images`,'ok');
+    addLog(`    ✓ ${W}×${H}, ${S.duration.toFixed(1)}s, ${S.words.length} captioned words, ${S.imgs.length} images, ${S.segs.length} scenes`,'ok');
+    addLog('    Scene starts (s): '+S.segs.map(g=>g.start.toFixed(1)).join(', '));
     if(!S.imgs.length) addLog('    ! No images loaded — using a gradient background (fetch images in step 4)','warn');
     setStep('as0','ok');
 
