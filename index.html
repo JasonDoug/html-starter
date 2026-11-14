@@ -887,7 +887,7 @@ async function genScript(){
   gs('Generating...','spin');
 
   const sys=`You are a viral video scriptwriter. Generate a ${curGenre} ${cfg.label} script. Return ONLY valid JSON, no markdown, no backticks:
-{"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","sentence 3","sentence 4","sentence 5","sentence 6"],"cta":"closing CTA 10-15 words","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description under 150 chars","visuals":["a 2-4 word concrete photo search query for the hook","one for body sentence 1","one for body sentence 2","one per remaining body sentence, in order","one for the cta"]}
+{"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","sentence 3","sentence 4","sentence 5","sentence 6"],"cta":"final line, ALWAYS an engagement call in this style: What do you think? Chime in in the comments, and don't forget to like and subscribe for more!","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description under 150 chars","visuals":["a 2-4 word concrete photo search query for the hook","one for body sentence 1","one for body sentence 2","one per remaining body sentence, in order","one for the cta"]}
 Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return JSON only.`;
 
   const userMsg=`Story: "${selPost.title}"\nDetails: ${selPost.selftext?selPost.selftext.slice(0,400):'(no body)'}`+(selPost.score!=null?`\nScore: ${selPost.score}`:'');
@@ -960,6 +960,9 @@ Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return 
     if(jsonMatch) txt=jsonMatch[0];
 
     script=JSON.parse(txt);
+    // Guarantee the closing engagement beat, whatever the model returned
+    const ENGAGE="What do you think? Chime in in the comments, and don't forget to like and subscribe for more!";
+    if(!script.cta || !/subscribe/i.test(script.cta) || !/comment/i.test(script.cta)) script.cta=ENGAGE;
     renderScript(script);
     document.getElementById('to2').disabled=false;
     if(script.title) document.getElementById('yt-title').value=script.title;
