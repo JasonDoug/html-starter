@@ -1195,15 +1195,22 @@ function loadImg(url, ms=12000){
   });
 }
 
+let imgDiag = [];
 async function commonsSearch(q, used){
-  const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(q+' filetype:bitmap')}&gsrlimit=15&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1600&format=json&origin=*`;
-  const r = await tfetch(url, 10000);
+  // Wikimedia only serves standard thumbnail widths (e.g. 960/1280/1920); other sizes get HTTP 429
+  const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrnamespace=6&gsrsearch=${encodeURIComponent(q+' filetype:bitmap')}&gsrlimit=15&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1920&format=json&origin=*`;
+  const r = await tfetch(url, 12000);
+  if(!r.ok) throw new Error('Commons search HTTP ' + r.status);
   const d = await r.json();
+  if(d.error) throw new Error('Commons: ' + (d.error.info || d.error.code));
   return Object.values(d?.query?.pages || {})
     .sort((a,b) => (a.index||0) - (b.index||0))
     .map(p => ({ title: p.title, ii: p.imageinfo && p.imageinfo[0] }))
     .filter(x => x.ii && /^image\/(jpeg|png|webp)/.test(x.ii.mime||'') && (x.ii.width||0) >= 500 && !used.has(x.title))
-    .map(x => ({ title: x.title, url: x.ii.thumburl || x.ii.url }));
+    .map(x => {
+      const t = x.ii.thumburl || x.ii.url;
+      return { title: x.title, urls: [t, t.replace(/\/1920px-/, '/1280px-'), t.replace(/\/1920px-/, '/960px-')].filter((u,k,a)=>a.indexOf(u)===k) };
+    });
 }
 
 async function imageForBeat(i, q, fallbackQ, used, W, H){
@@ -1213,12 +1220,17 @@ async function imageForBeat(i, q, fallbackQ, used, W, H){
     try{
       const cands = await commonsSearch(tq, used);
       for(const c of cands.slice(0,3)){
-        const im = await loadImg(c.url);
-        if(im){ used.add(c.title); return { im, thumb: c.url, q: tq, src: 'wikimedia' }; }
+        for(const u of c.urls){
+          const im = await loadImg(u, 25000);
+          if(im){ used.add(c.title); return { im, thumb: u, q: tq, src: 'wikimedia' }; }
+          imgDiag.push('image failed to load: ' + u.slice(0,90));
+        }
       }
-    }catch(e){ /* try next query */ }
+      if(!cands.length) imgDiag.push(`no Commons results for "${tq}"`);
+    }catch(e){ imgDiag.push(e.message); console.warn('Commons search failed', e); }
   }
-  const im = await loadImg(`https://picsum.photos/seed/rvs${i}${encodeURIComponent(q||'x')}/${W}/${H}`);
+  const im = await loadImg(`https://picsum.photos/seed/rvs${i}${encodeURIComponent(q||'x')}/${W}/${H}`, 15000);
+  if(!im) imgDiag.push('Picsum fallback failed to load');
   return im ? { im, thumb: im.src, q, src: 'generic' } : null;
 }
 
@@ -1237,7 +1249,7 @@ async function fetchImages(){
     beats = Array(n).fill(topic); queries = beats.slice();
   }
   const fallbackQ = override || (selPost ? beatQuery(selPost.title) : '');
-  loadedImages = []; beatMeta = []; grid.innerHTML = '';
+  loadedImages = []; beatMeta = []; grid.innerHTML = ''; imgDiag = [];
   imagesSig = getBeats().length ? getBeats().join('|') : '';
   gs('Finding images...','spin');
   notice.innerHTML = `<strong>Matching one image to each of ${beats.length} script beats</strong> via Wikimedia Commons...`;
@@ -1262,7 +1274,7 @@ async function fetchImages(){
   }
   const ok = loadedImages.filter(Boolean).length;
   mark('vis', ok > 0);
-  if(!ok){ gs('No images could be loaded','err'); notice.innerHTML = '<span style="color:var(--red)">No images loaded — check your connection and retry. Assembly will use a gradient background.</span>'; return; }
+  if(!ok){ gs('No images could be loaded','err'); notice.innerHTML = '<span style="color:var(--red)">No images loaded. Reasons: '+esc([...new Set(imgDiag)].slice(0,4).join(' · ')||'unknown')+'. Assembly would use a plain dark background.</span>'; return; }
   gs(`${ok} images ready`,'ok');
   notice.innerHTML = `<strong>✓ ${ok} of ${beats.length} beats have images</strong>${generic ? ` — ${generic} used generic stock (orange border) because nothing matched` : ' — all matched to their lines'}. Each image shows while its line is spoken. Edit the query box to override, then fetch again.`;
 }
