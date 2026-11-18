@@ -197,7 +197,7 @@ canvas{width:100%;display:block;}
 <!-- PANEL 0: SCRAPE -->
 <div class="panel active" id="p0">
   <div class="notice" id="source-notice">
-    <strong>Reddit</strong> via <a href="https://rss2json.com" style="color:var(--blue)" target="_blank">rss2json</a> — no key or login. Free tier returns up to 10 posts per fetch, with titles and authors but no vote counts.
+    <strong>Reddit</strong> via <a href="https://rss2json.com" style="color:var(--blue)" target="_blank">rss2json</a> — no key or login. Reddit ended its RSS feeds on Nov 13, 2026, so posts now come from a public Reddit archive (Arctic Shift), with scores. Hot/Rising/Top are ranked from recent posts, so results can lag Reddit by minutes.
   </div>
   <div class="field-group" id="rss-key-group" style="margin-bottom:10px;">
     <div class="field-label">rss2json API key (optional, free — rss2json.com, raises rate limits)</div>
@@ -672,7 +672,7 @@ function updateSourceUI(){
   if(src==='reddit'){
     lbl.textContent='Subreddit'; inp.placeholder='e.g. todayilearned, worldnews';
     if(!inp.value||['technology'].includes(inp.value)) inp.value='todayilearned';
-    notice.innerHTML='<strong>Reddit</strong> via <a href="https://rss2json.com" style="color:var(--blue)" target="_blank">rss2json</a> — no key or login. Free tier returns up to 10 posts per fetch, with titles and authors but no vote counts.';
+    notice.innerHTML='<strong>Reddit</strong> — Reddit ended its RSS feeds on Nov 13, 2026, so posts come from a public Reddit archive (Arctic Shift) with scores. Hot/Rising/Top are ranked from recent posts, so results can lag Reddit by a few minutes.';
   } else if(src==='hn'){
     lbl.textContent='Filter (optional)'; inp.placeholder='e.g. AI, climate, space';
     if(inp.value==='todayilearned'||inp.value==='technology') inp.value='';
@@ -707,6 +707,34 @@ function parseRedditAtom(xml){
   });
 }
 function tfetch(u,ms=12000){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);return fetch(u,{signal:c.signal}).finally(()=>clearTimeout(t));}
+async function fetchRedditArchive(clean,sort,time){
+  const dayMs=864e5, iso=ms=>new Date(Date.now()-ms).toISOString().slice(0,10);
+  const p=new URLSearchParams({subreddit:clean,limit:'100',sort:'desc'});
+  if(sort==='hot'||sort==='rising') p.set('after',iso(dayMs));
+  else if(sort==='top'){ const d={hour:1,day:1,week:7,month:30,year:365,all:365}[time]||7; p.set('after',iso(d*dayMs)); }
+  const qs=p.toString();
+  const urls=[`/api/arctic?${qs}`,`https://arctic-shift.photon-reddit.com/api/posts/search?${qs}`];
+  let j=null,err='';
+  for(const u of urls){
+    try{
+      const r=await tfetch(u,25000);
+      if(!r.ok){ err=`HTTP ${r.status}`; continue; }
+      const t=await r.text(); try{ j=JSON.parse(t); }catch(e){ err='not JSON (is /api/arctic served by server.mjs?)'; continue; }
+      break;
+    }catch(e){ err=e.message; }
+  }
+  if(!j) throw new Error('archive: '+err);
+  const rows=(j.data||j||[]).filter(x=>x&&x.title&&!/^\[(removed|deleted)\]$/.test(x.selftext||'')&&!x.stickied);
+  if(!rows.length) throw new Error(`archive: no posts found for r/${clean} in that window`);
+  const now=Date.now()/1000, age=x=>Math.max(0.1,(now-x.created_utc)/3600);
+  const rank={new:x=>x.created_utc,top:x=>x.score||0,hot:x=>(x.score||0)/Math.pow(age(x)+2,1.5),rising:x=>(x.score||0)/(age(x)+1)}[sort]||(x=>x.created_utc);
+  rows.sort((a,b)=>rank(b)-rank(a));
+  return rows.map(x=>({
+    id:x.id,title:x.title,score:x.score!=null?x.score:null,num_comments:x.num_comments!=null?x.num_comments:null,
+    author:x.author?'u/'+x.author:'',url:x.permalink?'https://www.reddit.com'+x.permalink:(x.url||''),
+    selftext:(x.selftext||'').slice(0,500),source:'reddit',created_utc:x.created_utc,
+    thumbnail:/^https?:/.test(x.thumbnail||'')?x.thumbnail:''}));
+}
 const _rssCache=new Map();
 async function fetchRedditRss(sub,sort,time){
   const ck=`${sub}|${sort}|${time}`.toLowerCase(), hit=_rssCache.get(ck);
@@ -730,7 +758,7 @@ async function fetchRedditRssUncached(sub,sort,time){
       const local=r.headers.get('x-rvs-local')==='1';
       if(r.ok) return parseRedditAtom(await r.text());
       if(local && r.status===429){ const e=new Error('Reddit asked us to wait'); e.retryAfter=parseInt(r.headers.get('retry-after'))||60; throw e; }
-      if(local && r.status===404){ const e=new Error(`r/${clean} was not found — check the spelling`); e.fatal=true; throw e; }
+      if(local && r.status===404) throw new Error('Reddit returned 404 (RSS feeds were switched off on Nov 13, so this may not be a typo)');
       if(local && (r.status===403||r.status===401)){ const e=new Error(`r/${clean} is private, quarantined or banned, or Reddit is blocking this address`); e.fatal=true; throw e; }
       throw new Error(`HTTP ${r.status}`);
     }],
@@ -762,6 +790,8 @@ async function fetchRedditRssUncached(sub,sort,time){
     }]
   ];
   const errs=[];
+  // Reddit ended RSS support on 13 Nov 2026, so try the public archive first (it also has scores)
+  try{ return await fetchRedditArchive(clean,sort,time); }catch(e){ errs.push(e.message); }
   for(let round=0;round<2;round++){
     if(round){for(let s=5;s>0;s--){gs(`All routes busy — retrying in ${s}s`,'spin');await new Promise(r=>setTimeout(r,1000));}}
     for(const [name,fn] of routes){
@@ -777,7 +807,7 @@ async function fetchRedditRssUncached(sub,sort,time){
       }
     }
   }
-  throw new Error('Reddit is throttling every free proxy right now ('+errs.slice(-4).join('; ')+'). Wait a minute and retry, or use Hacker News.');
+  throw new Error('Could not load r/'+clean+' ('+errs.slice(0,5).join('; ')+'). Reddit ended RSS on Nov 13, 2026, so use Hacker News if the archive is down.');
 }
 
 let _scraping=false, _lastPosts=null;

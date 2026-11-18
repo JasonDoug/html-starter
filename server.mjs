@@ -50,6 +50,15 @@ http.createServer(async (req, res) => {
       res.statusCode = r.status;
       return res.end(body.slice(0, 300));
     }
+    if (u.pathname === '/api/arctic') { // proxy to the Arctic Shift Reddit archive (avoids browser CORS issues)
+      const q = u.searchParams.toString(), c = rssCache.get('arctic:' + q);
+      res.setHeader('Content-Type', 'application/json'); res.setHeader('X-RVS-Local', '1');
+      if (c && Date.now() - c.t < 60 * 1000) return res.end(c.body);
+      const r = await fetch('https://arctic-shift.photon-reddit.com/api/posts/search?' + q, { headers: { 'User-Agent': 'RedditVideoStudio/1.0' }, signal: AbortSignal.timeout(25000) });
+      const body = await r.text();
+      if (r.ok) rssCache.set('arctic:' + q, { t: Date.now(), body });
+      res.statusCode = r.status; return res.end(body);
+    }
     const file = u.pathname === '/' ? 'index.html' : u.pathname.slice(1);
     if (file.includes('..') || file.startsWith('api') || file === 'server.mjs') { res.statusCode = 404; return res.end('Not found'); }
     const data = fs.readFileSync(path.join(dir, file));
