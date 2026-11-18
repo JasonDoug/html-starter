@@ -544,9 +544,9 @@ canvas{width:100%;display:block;}
     <input type="text" id="goog-id" placeholder="xxxxx.apps.googleusercontent.com" style="font-family:monospace;font-size:11px;">
   </div>
   <div id="oauth-uri-box" style="display:none;" class="notice">
-    <strong>Add these EXACTLY in Google Cloud Console → Credentials → your OAuth client:</strong><br>
-    Authorized JavaScript origins: <code id="oauth-uri-hint" style="user-select:all;color:var(--green)"></code><br>
-    Authorized redirect URIs: <code style="user-select:all;color:var(--green)" id="oauth-uri-hint2"></code>
+    <strong>In Google Cloud Console → Credentials → your OAuth client, add under "Authorized JavaScript origins" exactly:</strong><br>
+    <code id="oauth-uri-hint" style="user-select:all;color:var(--green)"></code><br>
+    <span style="color:var(--text3)">No redirect URI is needed. Google only accepts <code>https://…</code> addresses or <code>http://localhost</code> — not IP addresses like 192.168.x.x. If your OAuth consent screen is in "Testing", add your Google account as a test user.</span>
   </div>
   <div class="btns">
     <button class="btn btn-ghost" onclick="oauthLogin()"><i class="ti ti-brand-google"></i> Connect Google account</button>
@@ -1612,48 +1612,42 @@ function downloadVid(){
   a.click();
 }
 
-function oauthLogin(){
+const YT_SCOPES='https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly https://www.googleapis.com/auth/yt-analytics-monetary.readonly';
+function loadGsi(){
+  return new Promise((res,rej)=>{
+    if(window.google&&google.accounts&&google.accounts.oauth2) return res();
+    const sc=document.createElement('script'); sc.src='https://accounts.google.com/gsi/client'; sc.async=true;
+    sc.onload=()=>res(); sc.onerror=()=>rej(new Error('Could not load Google sign-in script (check your connection or ad blocker)'));
+    document.head.appendChild(sc);
+  });
+}
+async function oauthLogin(){
   const cid=document.getElementById('goog-id').value.trim();
-  if(!cid){alert('Enter your Google OAuth2 Client ID first.');return;}
-
-  // Redirect URI must be EXACTLY the origin — no path, no trailing slash
-  const redirectUri = window.location.origin;
-  const scope=encodeURIComponent('https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/yt-analytics.readonly https://www.googleapis.com/auth/yt-analytics-monetary.readonly');
-
-  // Show the user exactly what to register in Google Cloud
-  document.getElementById('oauth-uri-hint').textContent = redirectUri;
-  document.getElementById('oauth-uri-box').style.display = 'block';
-
-  const url=`https://accounts.google.com/o/oauth2/v2/auth?client_id=${cid}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${scope}&access_type=online`;
-  document.getElementById('pub-status').innerHTML='<span class="dot dot-spin"></span>Opening Google login...';
-
-  // Handle the token from redirect — Google returns #access_token=... in the URL
-  const handleHash = () => {
-    const hash = window.location.hash;
-    if(hash.includes('access_token')){
-      const params = new URLSearchParams(hash.slice(1));
-      window._ytToken = params.get('access_token');
-      window.location.hash = '';
-      document.getElementById('pub-status').innerHTML='<span class="dot dot-ok"></span>Connected! Ready to upload.';
-      document.getElementById('upload-btn').disabled=false;
-      window.removeEventListener('focus', handleHash);
-    }
-  };
-
-  // Also check on page load in case we came back from OAuth redirect
-  if(window.location.hash.includes('access_token')){
-    handleHash();
+  if(!cid){ setPubStatus('warn','Enter your Google OAuth Client ID first'); return; }
+  try{ localStorage.setItem('goog_client_id',cid); }catch(e){}
+  const origin=window.location.origin, host=window.location.hostname;
+  document.getElementById('oauth-uri-hint').textContent=origin;
+  document.getElementById('oauth-uri-box').style.display='block';
+  const isLocal=/^(localhost|127\.0\.0\.1)$/.test(host);
+  if(!isLocal && /^(\d{1,3}\.){3}\d{1,3}$/.test(host)){
+    setPubStatus('err',`Google rejects sign-in from ${esc(origin)} because raw IP addresses are not allowed. Open the app at <b>http://localhost:3000</b> on the machine running it, or use an https address (your Vercel URL).`);
     return;
   }
-
-  window.open(url,'_blank','width=500,height=650');
-  window.addEventListener('focus', handleHash);
-  setTimeout(()=>{
-    if(!window._ytToken){
-      document.getElementById('pub-status').innerHTML='<span class="dot dot-warn"></span>Complete sign-in in the popup, then return here';
-      document.getElementById('upload-btn').disabled=false;
-    }
-  },3000);
+  try{
+    setPubStatus('spin','Opening Google sign-in...');
+    await loadGsi();
+    const client=google.accounts.oauth2.initTokenClient({
+      client_id:cid, scope:YT_SCOPES,
+      callback:resp=>{
+        if(resp.error){ setPubStatus('err','Google sign-in failed: '+esc(resp.error_description||resp.error)); return; }
+        window._ytToken=resp.access_token;
+        setPubStatus('ok','Connected to Google. Ready to upload.');
+        document.getElementById('upload-btn').disabled=false;
+      },
+      error_callback:e=>setPubStatus('err','Sign-in did not complete: '+esc((e&&(e.message||e.type))||'cancelled')+(e&&e.type==='popup_failed_to_open'?' — allow pop-ups for this site':''))
+    });
+    client.requestAccessToken({prompt:''});
+  }catch(e){ setPubStatus('err',esc(e.message)); }
 }
 
 // Check for OAuth token on page load (handles redirect back from Google)
@@ -1798,7 +1792,7 @@ document.querySelectorAll('#platform-pills .pill').forEach(b=>{
 function syncPreset(){ const cfg=presets[curPreset]; document.getElementById('sb-preset').textContent=cfg.label+' · '+curGenre; if(document.getElementById('out-res').value) document.getElementById('out-res').value=cfg.res; }
 
 loadVoices();
-try{document.getElementById('rss2json-key').value=localStorage.getItem('rss2json_key')||'';}catch(e){}
+try{document.getElementById('rss2json-key').value=localStorage.getItem('rss2json_key')||'';document.getElementById('goog-id').value=localStorage.getItem('goog_client_id')||'';}catch(e){}
 </script>
 </body>
 </html>
