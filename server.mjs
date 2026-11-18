@@ -17,6 +17,7 @@ function shim(res) {
 }
 
 const rssCache=new Map();
+let blockedUntil=0;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 http.createServer(async (req, res) => {
   const u = new URL(req.url, `http://${req.headers.host}`);
@@ -30,19 +31,24 @@ http.createServer(async (req, res) => {
       if (!/(^|\.)reddit\.com$/.test(target.hostname)) { res.statusCode = 400; return res.end('reddit.com only'); }
       const key = target.href, c = rssCache.get(key);
       res.setHeader('Content-Type', 'application/xml');
+      res.setHeader('X-RVS-Local', '1');
+      res.setHeader('Access-Control-Expose-Headers', 'Retry-After, X-RVS-Local');
       if (c && Date.now() - c.t < 5 * 60 * 1000) { res.statusCode = 200; return res.end(c.body); }
-      let r, body;
-      for (let i = 0; i < 3; i++) {
-        r = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) RedditVideoStudio/1.0', Accept: 'application/atom+xml,application/xml,text/xml' }, signal: AbortSignal.timeout(15000) });
-        body = await r.text();
-        if (r.status !== 429 && r.status < 500) break;
-        const ra = parseInt(r.headers.get('retry-after')) || (2 + i * 3);
-        await sleep(Math.min(ra, 8) * 1000);
+      if (Date.now() < blockedUntil) { // Reddit asked us to back off: don't hammer it
+        res.statusCode = 429; res.setHeader('Retry-After', String(Math.ceil((blockedUntil - Date.now()) / 1000)));
+        return res.end('rate limited');
       }
-      if (r.ok) rssCache.set(key, { t: Date.now(), body });
-      else if (c) { res.statusCode = 200; return res.end(c.body); } // serve stale on failure
+      const r = await fetch(target, { headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) RedditVideoStudio/1.0', Accept: 'application/atom+xml,application/xml,text/xml' }, signal: AbortSignal.timeout(15000) });
+      const body = await r.text();
+      if (r.ok) { rssCache.set(key, { t: Date.now(), body }); res.statusCode = 200; return res.end(body); }
+      if (c) { res.statusCode = 200; return res.end(c.body); } // serve stale on failure
+      if (r.status === 429) {
+        const secs = Math.min(120, Math.max(5, parseInt(r.headers.get('retry-after')) || parseInt(r.headers.get('x-ratelimit-reset')) || 60));
+        blockedUntil = Date.now() + secs * 1000;
+        res.setHeader('Retry-After', String(secs));
+      }
       res.statusCode = r.status;
-      return res.end(body);
+      return res.end(body.slice(0, 300));
     }
     const file = u.pathname === '/' ? 'index.html' : u.pathname.slice(1);
     if (file.includes('..') || file.startsWith('api') || file === 'server.mjs') { res.statusCode = 404; return res.end('Not found'); }

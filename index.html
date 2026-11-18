@@ -726,9 +726,13 @@ async function fetchRedditRssUncached(sub,sort,time){
   const enc=encodeURIComponent(rssUrl);
   const routes=[
     ['local server',async()=>{
-      const r=await tfetch(`/api/rss?url=${enc}`);
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      return parseRedditAtom(await r.text());
+      const r=await tfetch(`/api/rss?url=${enc}`,20000);
+      const local=r.headers.get('x-rvs-local')==='1';
+      if(r.ok) return parseRedditAtom(await r.text());
+      if(local && r.status===429){ const e=new Error('Reddit asked us to wait'); e.retryAfter=parseInt(r.headers.get('retry-after'))||60; throw e; }
+      if(local && r.status===404){ const e=new Error(`r/${clean} was not found — check the spelling`); e.fatal=true; throw e; }
+      if(local && (r.status===403||r.status===401)){ const e=new Error(`r/${clean} is private, quarantined or banned, or Reddit is blocking this address`); e.fatal=true; throw e; }
+      throw new Error(`HTTP ${r.status}`);
     }],
     ['rss2json',async()=>{
       let u=`https://api.rss2json.com/v1/api.json?rss_url=${enc}`;
@@ -763,7 +767,14 @@ async function fetchRedditRssUncached(sub,sort,time){
     for(const [name,fn] of routes){
       gs(`Trying ${name}...`,'spin');
       try{const out=await fn();if(out&&out.length) return out;errs.push(`${name}: empty`);}
-      catch(e){errs.push(`${name}: ${e.message}`);}
+      catch(e){
+        if(e.fatal) throw e;
+        if(e.retryAfter && e.retryAfter<=90){
+          // Reddit allows roughly one feed per minute: wait it out and retry once instead of falling to shared proxies
+          for(let sec=e.retryAfter+1;sec>0;sec--){ gs(`Reddit allows ~1 feed per minute — retrying in ${sec}s`,'spin'); await new Promise(r=>setTimeout(r,1000)); }
+          try{const out=await fn();if(out&&out.length) return out;}catch(e2){ if(e2.fatal) throw e2; errs.push(`${name}: ${e2.message}${e2.retryAfter?` (wait ${e2.retryAfter}s more)`:''}`); }
+        } else errs.push(`${name}: ${e.message}`);
+      }
     }
   }
   throw new Error('Reddit is throttling every free proxy right now ('+errs.slice(-4).join('; ')+'). Wait a minute and retry, or use Hacker News.');
