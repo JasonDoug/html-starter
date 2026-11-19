@@ -5,6 +5,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import * as comfy from './imagegen/comfy.mjs';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -49,6 +50,17 @@ http.createServer(async (req, res) => {
       }
       res.statusCode = r.status;
       return res.end(body.slice(0, 300));
+    }
+    if (u.pathname === '/api/imagegen/health') { return shim(res).json(await comfy.health()); }
+    if (u.pathname === '/api/imagegen/generate' && req.method === 'POST') {
+      let raw = ''; for await (const ch of req) { raw += ch; if (raw.length > 65536) { res.statusCode = 413; return res.end('too large'); } }
+      let b; try { b = JSON.parse(raw); } catch { res.statusCode = 400; return res.end('bad json'); }
+      if (!b.prompt || typeof b.prompt !== 'string') { res.statusCode = 400; return res.end('prompt required'); }
+      try {
+        const r = await comfy.generate({ prompt: b.prompt, negative: b.negative, negativeExtra: typeof b.negative_extra === 'string' ? b.negative_extra.slice(0, 200) : '', seed: b.seed, presetId: b.preset, aspect: b.aspect });
+        res.setHeader('Content-Type', r.type); res.setHeader('X-Gen-Seconds', r.seconds.toFixed(1)); res.setHeader('X-Gen-Size', `${r.width}x${r.height}`);
+        return res.end(r.buf);
+      } catch (e) { res.statusCode = e.status || 500; return shim(res).json({ error: e.message }); }
     }
     if (u.pathname === '/api/arctic') { // proxy to the Arctic Shift Reddit archive (avoids browser CORS issues)
       const q = u.searchParams.toString(), c = rssCache.get('arctic:' + q);

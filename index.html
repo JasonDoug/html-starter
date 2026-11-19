@@ -369,6 +369,45 @@ canvas{width:100%;display:block;}
 
 <!-- PANEL 3: VISUALS -->
 <div class="panel" id="p3">
+  <div class="field-group" style="margin-bottom:10px;">
+    <div class="field-label">Image source</div>
+    <select id="img-source" onchange="updateImgSourceUI()">
+      <option value="stock" selected>Stock photos — Wikimedia Commons (free, works anywhere)</option>
+      <option value="ai">AI generated — ComfyUI on your home server</option>
+    </select>
+  </div>
+  <div id="ai-box" style="display:none;">
+    <div class="notice" id="ai-status">Checking ComfyUI...</div>
+    <div class="row">
+      <div class="field-group" style="flex:2;">
+        <div class="field-label">Quality / speed</div>
+        <select id="ai-preset"></select>
+      </div>
+      <div class="field-group">
+        <div class="field-label">Style</div>
+        <select id="ai-style">
+          <option value="cinematic" selected>Cinematic photo</option>
+          <option value="documentary">Documentary photo</option>
+          <option value="illustration">Illustration</option>
+          <option value="anime">Anime</option>
+          <option value="dark">Dark &amp; moody</option>
+          <option value="render3d">3D render</option>
+          <option value="comic">Comic book</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-group" style="margin-bottom:8px;">
+      <div class="field-label">Extra things to avoid (optional)</div>
+      <input type="text" id="ai-neg" placeholder="e.g. people, hands, crowds">
+    </div>
+    <div class="field-label">Prompt for each beat (edit, then generate)</div>
+    <div id="ai-prompts" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px;"></div>
+    <div class="btns">
+      <button class="btn btn-primary" id="ai-gen-btn" onclick="generateAiImages()"><i class="ti ti-sparkles"></i> Generate AI images</button>
+      <button class="btn btn-ghost" onclick="refreshAiPrompts(true)"><i class="ti ti-refresh"></i> Rebuild prompts</button>
+    </div>
+  </div>
+  <div id="stock-box">
   <div class="row">
     <div class="field-group" style="flex:2;">
       <div class="field-label">Search override (optional)</div>
@@ -382,6 +421,7 @@ canvas{width:100%;display:block;}
       <div class="field-label">&nbsp;</div>
       <button class="btn btn-primary" onclick="fetchImages()"><i class="ti ti-photo-search"></i> Fetch images</button>
     </div>
+  </div>
   </div>
   <div class="notice" id="pexels-notice">
     <strong>Wikimedia Commons</strong> — millions of freely licensed photos, zero cost, no account needed. Falls back to Picsum random photos if no results.
@@ -639,6 +679,7 @@ function goto(n){
   }
   if(n===1 && selPost) updateSrcPost();
   if(n===2 && !document.getElementById('voice-sel').options.length) loadVoices();
+  if(n===3) updateImgSourceUI();
   if(n===3) initCanvas();
 }
 
@@ -928,7 +969,7 @@ async function genScript(){
   gs('Generating...','spin');
 
   const sys=`You are a viral video scriptwriter. Generate a ${curGenre} ${cfg.label} script. Return ONLY valid JSON, no markdown, no backticks:
-{"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","sentence 3","sentence 4","sentence 5","sentence 6"],"cta":"final line, ALWAYS an engagement call in this style: What do you think? Chime in in the comments, and don't forget to like and subscribe for more!","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description under 150 chars","visuals":["a 2-4 word concrete photo search query for the hook","one for body sentence 1","one for body sentence 2","one per remaining body sentence, in order","one for the cta"]}
+{"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","sentence 3","sentence 4","sentence 5","sentence 6"],"cta":"final line, ALWAYS an engagement call in this style: What do you think? Chime in in the comments, and don't forget to like and subscribe for more!","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description under 150 chars","visuals":["a 2-4 word concrete photo search query for the hook","one for body sentence 1","one for body sentence 2","one per remaining body sentence, in order","one for the cta"],"image_prompts":["one vivid image-generation prompt per beat in the same order as visuals: concrete subject + setting + mood + lighting + camera angle, under 40 words, fictional generic people only, no text/letters/logos/real names"]}
 Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return JSON only.`;
 
   const userMsg=`Story: "${selPost.title}"\nDetails: ${selPost.selftext?selPost.selftext.slice(0,400):'(no body)'}`+(selPost.score!=null?`\nScore: ${selPost.score}`:'');
@@ -960,7 +1001,7 @@ Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return 
           },
           body:JSON.stringify({
             model:tryModel,
-            max_tokens:1000,
+            max_tokens:2000,
             messages:[
               {role:'system',content:sys},
               {role:'user',content:userMsg}
@@ -986,7 +1027,7 @@ Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return 
       const res=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
         headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,system:sys,
+        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,system:sys,
           messages:[{role:'user',content:userMsg}]})
       });
       const data=await res.json();
@@ -1234,6 +1275,139 @@ function loadImg(url, ms=12000){
     im.onerror = () => { clearTimeout(t); res(null); };
     im.src = url;
   });
+}
+
+
+// ───────── AI image generation (ComfyUI via server.mjs) ─────────
+const IMG_STYLES={
+  cinematic:'cinematic photograph, dramatic lighting, shallow depth of field, 35mm film, highly detailed',
+  documentary:'documentary photo, natural light, candid, realistic, sharp focus',
+  illustration:'digital illustration, vibrant colors, clean lines, detailed, professional artwork',
+  anime:'anime style, studio quality, vibrant colors, detailed background, cel shading',
+  dark:'dark moody atmosphere, noir lighting, high contrast, cinematic, film grain',
+  render3d:'3d render, soft studio lighting, colorful, high detail, smooth materials',
+  comic:'comic book art, bold ink outlines, halftone shading, dynamic composition'
+};
+let aiPrompts=[], aiPromptsSig='', aiHealthCache=null;
+
+function runImages(){ return document.getElementById('img-source').value==='ai'?generateAiImages():fetchImages(); }
+
+async function aiHealth(force){
+  if(aiHealthCache&&!force) return aiHealthCache;
+  let h;
+  try{
+    const r=await tfetch('/api/imagegen/health',8000);
+    h=await r.json();
+    if(typeof h!=='object'||h===null||!('ok' in h)) throw new Error('not available');
+  }catch(e){ h={ok:false,error:'AI images need the home server (server.mjs) — this address does not provide it. Open the app from your home server or tunnel address.',presets:[]}; }
+  aiHealthCache=h; return h;
+}
+
+async function updateImgSourceUI(){
+  const src=document.getElementById('img-source').value;
+  try{ localStorage.setItem('img_source',src); }catch(e){}
+  document.getElementById('ai-box').style.display=src==='ai'?'':'none';
+  document.getElementById('stock-box').style.display=src==='ai'?'none':'';
+  if(src!=='ai') return;
+  const st=document.getElementById('ai-status'), sel=document.getElementById('ai-preset');
+  const h=await aiHealth(true);
+  if(!h.ok){ st.innerHTML=`<span style="color:var(--red)">${esc(h.error||'ComfyUI not reachable')}</span>`; document.getElementById('ai-gen-btn').disabled=true; return; }
+  const prev=sel.value||(()=>{try{return localStorage.getItem('ai_preset');}catch(e){return '';}})()||h.default;
+  sel.innerHTML=h.presets.map(p=>`<option value="${p.id}"${p.available?'':' disabled'}>${esc(p.label)}${p.available?'':' — checkpoint not installed'}</option>`).join('');
+  sel.value=h.presets.some(p=>p.id===prev&&p.available)?prev:(h.presets.find(p=>p.available)||{}).id||'';
+  const any=h.presets.some(p=>p.available);
+  document.getElementById('ai-gen-btn').disabled=!any;
+  st.innerHTML=any?`<strong>ComfyUI connected</strong>${h.device?' · '+esc(h.device):''} · one image per script beat, generated one at a time. Times shown are estimates until you run <code>node imagegen/bench.mjs</code>.`
+    :`<span style="color:var(--red)">ComfyUI is running but none of the preset checkpoints are installed. Run <code>imagegen/download-models.sh</code> (see README), then reopen this step.</span>`;
+  refreshAiPrompts(false);
+}
+function fallbackAiPrompt(text,i,n){
+  if(i===n-1) return 'friendly glowing thumbs-up and notification bell icons floating over a vibrant gradient background, 3d render, no text';
+  return 'A striking scene illustrating: '+text.replace(/["“”]/g,'').slice(0,220);
+}
+function refreshAiPrompts(force){
+  const beats=getBeats(), box=document.getElementById('ai-prompts');
+  if(!beats.length){ box.innerHTML='<div class="notice">Generate a script in step 2 first — images are made one per script beat.</div>'; aiPrompts=[]; return; }
+  const sig=beats.join('|')+'|'+((script.image_prompts||[]).join('|'));
+  if(force||sig!==aiPromptsSig||aiPrompts.length!==beats.length){
+    aiPrompts=beats.map((b,i)=>(script.image_prompts&&typeof script.image_prompts[i]==='string'&&script.image_prompts[i].trim())||fallbackAiPrompt(b,i,beats.length));
+    aiPromptsSig=sig;
+  }
+  box.innerHTML='';
+  beats.forEach((b,i)=>{
+    const row=document.createElement('div'); row.style.cssText='display:flex;gap:6px;align-items:flex-start;';
+    row.innerHTML=`<div style="flex:1;"><div style="font-size:10px;color:var(--text3);margin-bottom:2px;">Beat ${i+1}: ${esc(b.slice(0,70))}${b.length>70?'…':''}</div><textarea rows="2" style="width:100%;font-size:12px;"></textarea></div><button class="btn btn-ghost" title="Regenerate just this image" style="margin-top:14px;"><i class="ti ti-refresh"></i></button>`;
+    const ta=row.querySelector('textarea'); ta.value=aiPrompts[i]; ta.oninput=()=>{ aiPrompts[i]=ta.value; };
+    row.querySelector('button').onclick=()=>regenAiBeat(i);
+    box.appendChild(row);
+  });
+}
+
+function renderImgGrid(){
+  const grid=document.getElementById('img-grid'); grid.innerHTML='';
+  const n=getBeats().length;
+  for(let i=0;i<n;i++){
+    const m=beatMeta[i], w=document.createElement('div'); w.style.cssText='width:84px;font-size:9px;color:var(--text3);';
+    const box=m?`background:url('${m.thumb}') center/cover;`:'display:flex;align-items:center;justify-content:center;';
+    w.innerHTML=`<div style="width:84px;height:112px;border-radius:4px;border:2px solid var(--border);${box}">${m?'':'<i class="ti ti-loader" style="animation:pulse 1s infinite"></i>'}</div><div style="margin-top:2px;">${m&&m.secs?m.secs.toFixed(1)+'s':'Beat '+(i+1)}</div>`;
+    grid.appendChild(w);
+  }
+}
+
+async function genAiBeat(i){
+  const [W,H]=(document.getElementById('out-res').value||'1080x1920').split('x').map(Number);
+  const aspect=H>W?'9:16':(W>H?'16:9':'1:1');
+  const style=IMG_STYLES[document.getElementById('ai-style').value]||'';
+  const prompt=`${aiPrompts[i]}, ${style}${aspect==='9:16'?', vertical composition':''}`;
+  const r=await fetch('/api/imagegen/generate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
+    prompt,negative_extra:document.getElementById('ai-neg').value.trim(),preset:document.getElementById('ai-preset').value,aspect})});
+  if(!r.ok){ let m=''; try{ m=(await r.json()).error; }catch(e){} throw new Error(m||`HTTP ${r.status}`); }
+  const secs=parseFloat(r.headers.get('X-Gen-Seconds'))||0;
+  const url=URL.createObjectURL(await r.blob());
+  const im=await loadImg(url,20000);
+  if(!im) throw new Error('Generated image could not be displayed');
+  return {im,thumb:url,q:aiPrompts[i],src:'ai',secs};
+}
+
+async function generateAiImages(){
+  const run=++_imgRun, notice=document.getElementById('pexels-notice'), btn=document.getElementById('ai-gen-btn');
+  const beats=getBeats();
+  if(!beats.length){ notice.innerHTML='<span style="color:var(--red)">Generate a script in step 2 first — AI images are made one per script beat.</span>'; return; }
+  const h=await aiHealth(true);
+  if(!h.ok){ notice.innerHTML=`<span style="color:var(--red)">${esc(h.error||'ComfyUI not reachable')}</span>`; return; }
+  refreshAiPrompts(false);
+  try{ localStorage.setItem('ai_preset',document.getElementById('ai-preset').value); localStorage.setItem('ai_style',document.getElementById('ai-style').value); }catch(e){}
+  loadedImages=[]; beatMeta=[]; imagesSig=beats.join('|'); renderImgGrid();
+  btn.disabled=true; let total=0, done=0, fails=[];
+  try{
+    for(let i=0;i<beats.length;i++){
+      if(run!==_imgRun) return;
+      const eta=done?Math.round(total/done*(beats.length-i)):0;
+      gs(`Generating image ${i+1}/${beats.length}${eta?` · ~${eta}s left`:''}`,'spin');
+      notice.innerHTML=`<strong>Generating image ${i+1} of ${beats.length}...</strong>${done?` (average ${(total/done).toFixed(1)}s each)`:' The first one is slower while the model loads.'}`;
+      try{
+        const res=await genAiBeat(i);
+        if(run!==_imgRun) return;
+        loadedImages[i]=res.im; beatMeta[i]=res; total+=res.secs; done++; renderImgGrid();
+      }catch(e){ fails.push(`beat ${i+1}: ${e.message}`); console.warn(e); if(/ComfyUI|reach|checkpoint|ckpt/i.test(e.message)&&!done) break; }
+    }
+  } finally { btn.disabled=false; }
+  const ok=loadedImages.filter(Boolean).length;
+  mark('vis',ok>0);
+  if(!ok){ gs('No images generated','err'); notice.innerHTML=`<span style="color:var(--red)">No images generated. ${esc([...new Set(fails)].slice(0,3).join(' · '))}</span>`; return; }
+  gs(`${ok} AI images ready`,'ok');
+  notice.innerHTML=`<strong>✓ ${ok} of ${beats.length} AI images generated</strong>${done?`, average ${(total/done).toFixed(1)}s each`:''}${fails.length?` — ${fails.length} failed: ${esc(fails[0])}`:''}. Edit a prompt and press its ↻ button to redo one image.`;
+}
+
+async function regenAiBeat(i){
+  const notice=document.getElementById('pexels-notice'), n=getBeats().length;
+  if(!n) return;
+  notice.innerHTML=`<strong>Regenerating image ${i+1}...</strong>`; gs(`Regenerating image ${i+1}`,'spin');
+  try{
+    if(imagesSig!==getBeats().join('|')){ loadedImages=[]; beatMeta=[]; imagesSig=getBeats().join('|'); }
+    const res=await genAiBeat(i); loadedImages[i]=res.im; beatMeta[i]=res; renderImgGrid();
+    notice.innerHTML=`<strong>✓ Image ${i+1} regenerated</strong> in ${res.secs.toFixed(1)}s.`; gs('Image regenerated','ok'); mark('vis',true);
+  }catch(e){ notice.innerHTML=`<span style="color:var(--red)">${esc(e.message)}</span>`; gs('Regenerate failed','err'); }
 }
 
 let imgDiag = [];
@@ -1518,7 +1692,7 @@ async function assemble(){
     if(curSig && (imagesSig!==curSig || loadedImages.filter(Boolean).length===0)){
       addLog('[0] Images are missing or out of date with the current script — fetching one per line...','warn');
       gs('Fetching images...','spin');
-      await fetchImages();
+      await runImages();
     }
     setStep('as0','spin'); addLog('[1] Preparing renderer...'); gs('Preparing...','spin');
     const S=buildRenderState();
@@ -1792,7 +1966,7 @@ document.querySelectorAll('#platform-pills .pill').forEach(b=>{
 function syncPreset(){ const cfg=presets[curPreset]; document.getElementById('sb-preset').textContent=cfg.label+' · '+curGenre; if(document.getElementById('out-res').value) document.getElementById('out-res').value=cfg.res; }
 
 loadVoices();
-try{document.getElementById('rss2json-key').value=localStorage.getItem('rss2json_key')||'';document.getElementById('goog-id').value=localStorage.getItem('goog_client_id')||'';}catch(e){}
+try{const sv=localStorage.getItem('img_source');if(sv)document.getElementById('img-source').value=sv;const st=localStorage.getItem('ai_style');if(st)document.getElementById('ai-style').value=st;document.getElementById('rss2json-key').value=localStorage.getItem('rss2json_key')||'';document.getElementById('goog-id').value=localStorage.getItem('goog_client_id')||'';}catch(e){}
 </script>
 </body>
 </html>

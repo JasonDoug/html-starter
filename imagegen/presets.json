@@ -1,0 +1,29 @@
+{
+  "default": "lightning-fast",
+  "presets": [
+    {
+      "id": "lightning-draft",
+      "label": "Draft · SDXL-Lightning 2-step · ~432x768 (est. 4-8s)",
+      "ckpt": "sdxl_lightning_2step.safetensors",
+      "steps": 2, "cfg": 1.0, "sampler": "euler", "scheduler": "sgm_uniform", "long": 768
+    },
+    {
+      "id": "lightning-fast",
+      "label": "Fast · SDXL-Lightning 4-step · 576x1024 (est. 10-20s) — recommended",
+      "ckpt": "sdxl_lightning_4step.safetensors",
+      "steps": 4, "cfg": 1.0, "sampler": "euler", "scheduler": "sgm_uniform", "long": 1024
+    },
+    {
+      "id": "lightning-quality",
+      "label": "Quality · SDXL-Lightning 8-step · 768x1344 (est. 35-60s)",
+      "ckpt": "sdxl_lightning_8step.safetensors",
+      "steps": 8, "cfg": 1.0, "sampler": "euler", "scheduler": "sgm_uniform", "long": 1344
+    },
+    {
+      "id": "realvis-photoreal",
+      "label": "Photoreal · RealVisXL V5 Lightning · 576x1024 (est. 15-25s, optional download)",
+      "ckpt": "RealVisXL_V5.0_Lightning_fp16.safetensors",
+      "steps": 5, "cfg": 1.5, "sampler": "dpmpp_sde", "scheduler": "karras", "long": 1024
+    }
+  ]
+}

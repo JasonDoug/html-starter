@@ -22,3 +22,6 @@ node server.mjs          # http://localhost:3000
 # or: docker compose up -d --build
 ```
 The local server fetches Reddit RSS from your own IP via `/api/rss`, which avoids shared-proxy rate limits.
+
+## AI image generation
+Optional: generate one image per script beat with your own ComfyUI. See [imagegen/README.md](imagegen/README.md).
