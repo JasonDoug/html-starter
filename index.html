@@ -911,6 +911,36 @@ function updateProviderUI(){
   }
 }
 
+// ───────── OpenRouter: live list of free text models (hard-coded lists go stale) ─────────
+let _freeModels=null;
+const _deadModels=new Set();
+async function getFreeModels(){
+  if(_freeModels) return _freeModels;
+  try{
+    const c=JSON.parse(localStorage.getItem('or_free_models')||'null');
+    if(c&&Date.now()-c.t<6*3600*1000&&c.list.length){ _freeModels=c.list; return _freeModels; }
+  }catch(e){}
+  try{
+    const r=await tfetch('https://openrouter.ai/api/v1/models',12000);
+    const d=await r.json();
+    const list=(d.data||[])
+      .filter(m=>m.pricing&&Number(m.pricing.prompt)===0&&Number(m.pricing.completion)===0)
+      .filter(m=>!m.architecture||!m.architecture.output_modalities||m.architecture.output_modalities.join().includes('text'))
+      .filter(m=>!m.architecture||!m.architecture.input_modalities||m.architecture.input_modalities.length>0)
+      .filter(m=>(m.context_length||0)>=8000&&!/embed|moderation|guard|whisper|tts/i.test(m.id)&&m.id!=='openrouter/auto')
+      .sort((a,b)=>(b.created||0)-(a.created||0))
+      .slice(0,14).map(m=>({id:m.id,name:m.name||m.id}));
+    if(list.length){ _freeModels=list; try{localStorage.setItem('or_free_models',JSON.stringify({t:Date.now(),list}));}catch(e){} }
+  }catch(e){ console.warn('Could not load OpenRouter model list',e); }
+  return _freeModels||[];
+}
+async function populateFreeModels(){
+  const list=await getFreeModels(); if(!list.length) return;
+  const sel=document.getElementById('free-model'), prev=sel.value;
+  sel.innerHTML='<option value="openrouter/auto">Auto — newest free models, with fallbacks</option>'+list.map(m=>`<option value="${esc(m.id)}">${esc(m.name)}</option>`).join('');
+  sel.value=list.some(m=>m.id===prev)?prev:'openrouter/auto';
+}
+
 async function genScript(){
   function addLog(m,cls){
     const seg=document.getElementById('segments');
@@ -938,15 +968,11 @@ Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return 
 
     if(provider==='openrouter'){
       const model=document.getElementById('free-model').value;
-      // Fallback chain — try selected model first, then alternatives if 429
-      const fallbackModels=[
-        model,
-        'mistralai/mistral-small-3.2-24b-instruct:free',
-        'google/gemma-3-12b-it:free',
-        'meta-llama/llama-3.1-8b-instruct:free',
-        'qwen/qwen3-8b:free',
-      ].filter((m,i,a)=>a.indexOf(m)===i); // dedupe
-
+      // Fallback chain: the chosen model first, then the newest free models OpenRouter currently lists
+      const live=(await getFreeModels()).map(m=>m.id);
+      const fallbackModels=[model,...live].filter((m,i,a)=>a.indexOf(m)===i&&!_deadModels.has(m)).slice(0,8);
+      if(!fallbackModels.length) fallbackModels.push('openrouter/auto');
+      const errs=[];
       let lastErr='';
       for(const tryModel of fallbackModels){
         if(tryModel!==model) addLog(`  ↩ Retrying with ${tryModel}...`,'warn');
@@ -971,17 +997,20 @@ Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return 
         let data;
         try{ data=JSON.parse(rawText); } catch(pe){ lastErr=`HTTP ${res.status} — ${rawText.slice(0,200)}`; continue; }
         if(res.status===429||data.error?.code===429||(data.error?.message||'').includes('rate')){
-          lastErr=`${tryModel} rate-limited`; continue;
+          lastErr=`${tryModel} rate-limited`; errs.push(`${tryModel.split('/').pop()}: busy`); continue;
         }
         if(!res.ok||data.error){
-          lastErr=`OpenRouter ${res.status}: ${data.error?.message||JSON.stringify(data).slice(0,200)}`; continue;
+          lastErr=`OpenRouter ${res.status}: ${data.error?.message||JSON.stringify(data).slice(0,200)}`;
+          if(res.status===404||res.status===410||/deprecat|no endpoints|not found|no longer/i.test(lastErr)){ _deadModels.add(tryModel); try{localStorage.removeItem('or_free_models');}catch(e){} _freeModels=null; }
+          if(res.status===401||res.status===403){ throw new Error(`OpenRouter rejected your API key (${res.status}) — check it at openrouter.ai/keys`); }
+          errs.push(`${tryModel.split('/').pop()}: ${res.status}`); continue;
         }
         if(!data.choices?.[0]?.message?.content){ lastErr=`No content in response`; continue; }
         txt=data.choices[0].message.content;
         if(tryModel!==model) gs(`Script ready (via ${tryModel.split('/')[1]?.split(':')[0]||tryModel})`,'ok');
         break;
       }
-      if(!txt) throw new Error(`All models rate-limited or failed. Last error: ${lastErr}. Try again in a minute.`);
+      if(!txt) throw new Error(`No free model answered (tried ${fallbackModels.length}: ${errs.slice(0,6).join(', ')}). Last error: ${lastErr}. Free models are often busy — wait a minute and retry.`);
     } else {
       const res=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
@@ -1792,6 +1821,7 @@ document.querySelectorAll('#platform-pills .pill').forEach(b=>{
 function syncPreset(){ const cfg=presets[curPreset]; document.getElementById('sb-preset').textContent=cfg.label+' · '+curGenre; if(document.getElementById('out-res').value) document.getElementById('out-res').value=cfg.res; }
 
 loadVoices();
+populateFreeModels();
 try{document.getElementById('rss2json-key').value=localStorage.getItem('rss2json_key')||'';document.getElementById('goog-id').value=localStorage.getItem('goog_client_id')||'';}catch(e){}
 </script>
 </body>
