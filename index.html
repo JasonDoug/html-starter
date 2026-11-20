@@ -1394,14 +1394,16 @@ async function updateImgSourceUI(){
   const h=await aiHealth(true);
   if(!h.ok){ st.innerHTML=`<span style="color:var(--red)">${esc(h.error||'ComfyUI not reachable')}</span>`; document.getElementById('ai-gen-btn').disabled=true; return; }
   const prev=sel.value||(()=>{try{return localStorage.getItem('ai_preset');}catch(e){return '';}})()||h.default;
-  sel.innerHTML=h.presets.map(p=>`<option value="${p.id}"${p.available?'':' disabled'}>${esc(p.label)}${p.available?'':' — checkpoint not installed'}</option>`).join('');
-  sel.value=h.presets.some(p=>p.id===prev&&p.available)?prev:(h.presets.find(p=>p.available)||{}).id||'';
+  // only list presets whose checkpoint is actually installed; if none match, offer all as "settings only" (pick a model on the right)
+  const usable=h.presets.filter(p=>p.available), shown=usable.length?usable:h.presets;
+  sel.innerHTML=shown.map(p=>`<option value="${p.id}">${esc(p.label)}${usable.length?'':' (settings only)'}</option>`).join('');
+  sel.value=shown.some(p=>p.id===prev)?prev:(shown[0]||{}).id||'';
   const msel=document.getElementById('ai-model');
   const pm=msel.value||(()=>{try{return localStorage.getItem('ai_model');}catch(e){return '';}})()||'';
   const names=[...new Set([...(h.checkpoints||[]),...(h.diskModels||[])])].sort();
-  msel.innerHTML='<option value="">Preset default</option>'+names.map(n=>`<option value="${esc(n)}"${(h.checkpoints||[]).includes(n)?'':' disabled'}>${esc(n)}${(h.checkpoints||[]).includes(n)?'':' (on disk, ComfyUI hasn\'t loaded it — refresh ComfyUI)'}</option>`).join('');
-  msel.value=names.includes(pm)?pm:'';
-  const any=h.presets.some(p=>p.available)||names.length>0;
+  msel.innerHTML=(usable.length?'<option value="">Preset default</option>':'')+names.map(n=>`<option value="${esc(n)}"${(h.checkpoints||[]).includes(n)?'':' disabled'}>${esc(n)}${(h.checkpoints||[]).includes(n)?'':' (on disk, ComfyUI hasn\'t loaded it — refresh ComfyUI)'}</option>`).join('');
+  msel.value=names.includes(pm)?pm:(usable.length?'':(names.find(n=>(h.checkpoints||[]).includes(n))||''));
+  const any=usable.length>0||(h.checkpoints||[]).length>0;
   document.getElementById('ai-gen-btn').disabled=!any;
   st.innerHTML=any?`<strong>ComfyUI connected</strong>${h.device?' · '+esc(h.device):''} · models folder: <code>${esc(h.checkpointsDir||'')}</code>${h.dirExists?'':' (not found)'} · one image per script beat, generated one at a time. Times shown are estimates until you run <code>node imagegen/bench.mjs</code>.`
     :`<span style="color:var(--red)">ComfyUI is running but none of the preset checkpoints are installed. Run <code>imagegen/download-models.sh</code> (see README), then reopen this step.</span>`;
