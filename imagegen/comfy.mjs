@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { describeFile } from './classify.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const COMFY_URL = (process.env.COMFY_URL || 'http://127.0.0.1:8188').replace(/\/+$/, '');
@@ -58,7 +59,8 @@ async function j(url, opts = {}, ms = 10000) {
 
 export async function health() {
   const cfg = loadPresets();
-  const out = { ok: false, comfy: COMFY_URL, checkpoints: [], presets: [], default: cfg.default, checkpointsDir: CHECKPOINTS_DIR, dirExists: fs.existsSync(CHECKPOINTS_DIR), diskModels: scanModels(CHECKPOINTS_DIR).sort() };
+  const out = { ok: false, comfy: COMFY_URL, checkpoints: [], presets: [], default: cfg.default, checkpointsDir: CHECKPOINTS_DIR, dirExists: fs.existsSync(CHECKPOINTS_DIR), diskModels: scanModels(CHECKPOINTS_DIR).sort(), modelInfo: {} };
+  for (const n of out.diskModels) { const d = describeFile(path.join(CHECKPOINTS_DIR, n)); out.modelInfo[n] = { kind: d.kind, fits: d.fits }; }
   try {
     const s = await j(COMFY_URL + '/system_stats', {}, 4000);
     if (!s.ok) throw new Error('HTTP ' + s.status);

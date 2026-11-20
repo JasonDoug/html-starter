@@ -1401,9 +1401,10 @@ async function updateImgSourceUI(){
   const msel=document.getElementById('ai-model');
   const pm=msel.value||(()=>{try{return localStorage.getItem('ai_model');}catch(e){return '';}})()||'';
   const names=[...new Set([...(h.checkpoints||[]),...(h.diskModels||[])])].sort();
-  msel.innerHTML=(usable.length?'<option value="">Preset default</option>':'')+names.map(n=>`<option value="${esc(n)}"${(h.checkpoints||[]).includes(n)?'':' disabled'}>${esc(n)}${(h.checkpoints||[]).includes(n)?'':' (on disk, ComfyUI hasn\'t loaded it — refresh ComfyUI)'}</option>`).join('');
-  msel.value=names.includes(pm)?pm:(usable.length?'':(names.find(n=>(h.checkpoints||[]).includes(n))||''));
-  const any=usable.length>0||(h.checkpoints||[]).length>0;
+  const mi=h.modelInfo||{}, okm=n=>(h.checkpoints||[]).includes(n)&&!(mi[n]&&mi[n].fits===false);
+  msel.innerHTML=(usable.length?'<option value="">Preset default</option>':'')+names.map(n=>`<option value="${esc(n)}"${okm(n)?'':' disabled'}>${esc(n)}${okm(n)?'':((mi[n]&&mi[n].fits===false)?' (not an all-in-one checkpoint, needs another workflow)':' (on disk, ComfyUI hasn\'t loaded it — refresh ComfyUI)')}</option>`).join('');
+  msel.value=names.includes(pm)&&okm(pm)?pm:(usable.length?'':(names.find(okm)||''));
+  const any=usable.length>0||names.some(okm);
   document.getElementById('ai-gen-btn').disabled=!any;
   st.innerHTML=any?`<strong>ComfyUI connected</strong>${h.device?' · '+esc(h.device):''} · models folder: <code>${esc(h.checkpointsDir||'')}</code>${h.dirExists?'':' (not found)'} · one image per script beat, generated one at a time. Times shown are estimates until you run <code>node imagegen/bench.mjs</code>.`
     :`<span style="color:var(--red)">ComfyUI is running but none of the preset checkpoints are installed. Run <code>imagegen/download-models.sh</code> (see README), then reopen this step.</span>`;
