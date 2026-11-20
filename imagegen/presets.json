@@ -1,29 +1,20 @@
 {
-  "default": "lightning-fast",
-  "presets": [
-    {
-      "id": "lightning-draft",
-      "label": "Draft · SDXL-Lightning 2-step · ~432x768 (est. 4-8s)",
-      "ckpt": "sdxl_lightning_2step.safetensors",
-      "steps": 2, "cfg": 1.0, "sampler": "euler", "scheduler": "sgm_uniform", "long": 768
-    },
-    {
-      "id": "lightning-fast",
-      "label": "Fast · SDXL-Lightning 4-step · 576x1024 (est. 10-20s) — recommended",
-      "ckpt": "sdxl_lightning_4step.safetensors",
-      "steps": 4, "cfg": 1.0, "sampler": "euler", "scheduler": "sgm_uniform", "long": 1024
-    },
-    {
-      "id": "lightning-quality",
-      "label": "Quality · SDXL-Lightning 8-step · 768x1344 (est. 35-60s)",
-      "ckpt": "sdxl_lightning_8step.safetensors",
-      "steps": 8, "cfg": 1.0, "sampler": "euler", "scheduler": "sgm_uniform", "long": 1344
-    },
-    {
-      "id": "realvis-photoreal",
-      "label": "Photoreal · RealVisXL V5 Lightning · 576x1024 (est. 15-25s, optional download)",
-      "ckpt": "RealVisXL_V5.0_Lightning_fp16.safetensors",
-      "steps": 5, "cfg": 1.5, "sampler": "dpmpp_sde", "scheduler": "karras", "long": 1024
-    }
-  ]
+  "_help": "Generation settings are picked automatically from the chosen model. The first profile whose 'match' (case-insensitive regex on the checkpoint filename) matches wins; otherwise the 'fallback' for the model's type (sdxl / sd1) is used. long = long edge in px (the other edge follows the video's aspect). clipSkip 2 = use CLIP's second-to-last layer. prefix / negPrefix are put in front of every prompt / negative prompt.",
+  "default": "sdxl_lightning_4step.safetensors",
+  "profiles": [
+    { "match": "lightning_2step", "label": "SDXL-Lightning 2-step", "steps": 2, "cfg": 1.0, "sampler": "euler", "scheduler": "sgm_uniform", "long": 1024 },
+    { "match": "lightning_4step", "label": "SDXL-Lightning 4-step", "steps": 4, "cfg": 1.0, "sampler": "euler", "scheduler": "sgm_uniform", "long": 1024 },
+    { "match": "lightning_8step", "label": "SDXL-Lightning 8-step (higher res)", "steps": 8, "cfg": 1.0, "sampler": "euler", "scheduler": "sgm_uniform", "long": 1344 },
+    { "match": "realvis.*lightning", "label": "RealVisXL Lightning (photoreal)", "steps": 5, "cfg": 1.5, "sampler": "dpmpp_sde", "scheduler": "karras", "long": 1024 },
+    { "match": "lcm", "label": "LCM (few-step)", "steps": 6, "cfg": 1.5, "sampler": "lcm", "scheduler": "sgm_uniform", "long": 1024 },
+    { "match": "lightning|hyper|dmd", "label": "Lightning-style merge (few-step)", "steps": 6, "cfg": 1.5, "sampler": "dpmpp_sde", "scheduler": "karras", "long": 1024 },
+    { "match": "turbo", "label": "Turbo merge (few-step)", "steps": 6, "cfg": 2.0, "sampler": "dpmpp_sde", "scheduler": "karras", "long": 1024 },
+    { "match": "pony", "label": "Pony Diffusion (score tags, clip skip 2)", "steps": 25, "cfg": 7.0, "sampler": "euler_ancestral", "scheduler": "normal", "long": 1024, "clipSkip": 2,
+      "prefix": "score_9, score_8_up, score_7_up, ", "negPrefix": "score_6, score_5, score_4, " },
+    { "match": "juggernaut", "label": "Juggernaut XL", "steps": 30, "cfg": 4.5, "sampler": "dpmpp_2m_sde", "scheduler": "karras", "long": 1024 }
+  ],
+  "fallback": {
+    "sdxl": { "label": "Standard SDXL", "steps": 25, "cfg": 6.0, "sampler": "dpmpp_2m", "scheduler": "karras", "long": 1024 },
+    "sd1": { "label": "Standard SD 1.5", "steps": 25, "cfg": 7.0, "sampler": "dpmpp_2m", "scheduler": "karras", "long": 768 }
+  }
 }

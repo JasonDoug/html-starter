@@ -1,48 +1,49 @@
 #!/usr/bin/env node
-// Scan a models tree, classify .safetensors files by reading their header, and (with --apply) move
-// stray full checkpoints into the ComfyUI checkpoints folder. Dry-run by default. Never deletes.
+// Scan a models tree (following symlinks, so Hugging Face cache snapshots count), classify every .safetensors
+// by reading its header, and with --apply bring every usable full checkpoint into the ComfyUI checkpoints folder:
+//  - a plain file elsewhere is MOVED in, and a symlink is left at its old path so other apps keep working
+//  - a checkpoints-folder symlink pointing elsewhere is replaced by the real file (old path becomes the symlink)
+//  - a file inside a Hugging Face cache is symlinked in (moving it would break the cache)
+// With --link instead, every stray checkpoint is only symlinked in (originals stay where other tools expect them).
+// Dry-run by default. Never deletes model data.
 //   node imagegen/scan-models.mjs [MODELS_DIR] [--apply | --link]
 import fs from 'node:fs';
 import path from 'node:path';
-import { CHECKPOINTS_DIR, MODELS_DIR } from './comfy.mjs';
-import { header, classify } from './classify.mjs';
+import { CHECKPOINTS_DIR, MODELS_DIR, discoverModels, linkIntoCheckpoints } from './comfy.mjs';
 
 const args = process.argv.slice(2);
-const link = args.includes('--link');            // symlink instead of move (keeps the original where other tools expect it)
+const link = args.includes('--link');
 const apply = args.includes('--apply') || link;
 const root = path.resolve(args.find(a => !a.startsWith('--')) || MODELS_DIR);
 const dest = path.resolve(CHECKPOINTS_DIR);
+const inside = (f, d) => path.resolve(f).startsWith(d + path.sep);
+const hfCache = m => /[\\/](blobs|snapshots)[\\/]/.test(m.real) || /[\\/]snapshots[\\/]/.test(m.path);
 
-function walk(dir, out = [], depth = 0) {
-  if (depth > 8) return out;
-  let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
-  for (const e of ents) {
-    const f = path.join(dir, e.name);
-    if (e.isSymbolicLink()) continue;                  // HF cache snapshots are symlinks into blobs/: leave them alone
-    if (e.isDirectory()) { if (!/^(\.git|blobs|\.no_exist)$/.test(e.name)) walk(f, out, depth + 1); }
-    else if (/\.safetensors$/i.test(e.name)) out.push(f);
-  }
-  return out;
-}
-
-const files = walk(root);
-const inDest = f => path.resolve(f).startsWith(dest + path.sep);
-const rows = files.map(f => {
-  const sz0 = fs.statSync(f).size, h = sz0 < 1024 ? null : header(f), c = h ? classify(h) : { kind: sz0 < 1024 ? 'empty' : 'unreadable', fits: false, note: 'not a valid safetensors header (partial download or a renamed .pth?)' };
-  return { f, size: fs.statSync(f).size, ...c, home: inDest(f) };
-});
+const rows = discoverModels(root);
 const gb = n => (n / 1e9).toFixed(2) + ' GB';
-console.log(`Scanned ${root}  (${rows.length} .safetensors files)\nCheckpoints folder: ${dest}\n`);
-for (const r of rows) console.log(`${r.fits ? (r.home ? 'OK     ' : 'STRAY  ') : 'other  '} ${r.kind.padEnd(16)} ${gb(r.size).padStart(9)}  ${path.relative(root, r.f)}${r.fits ? '' : '   [' + r.note + ']'}`);
-const stray = rows.filter(r => r.fits && !r.home);
-console.log(`\n${rows.filter(r => r.fits && r.home).length} usable checkpoint(s) already in place, ${stray.length} stray.`);
-if (!stray.length) process.exit(0);
-if (!apply) { console.log('Dry run. Re-run with --apply to MOVE the stray ones, or --link to symlink them (original stays put).'); process.exit(0); }
+const status = m => !m.fits ? 'other  ' : !m.inCk ? 'STRAY  ' : inside(m.real, fs.realpathSync(dest)) ? 'OK     ' : 'LINKED ';
+console.log(`Scanned ${root}  (${rows.length} model files >100 MB)\nCheckpoints folder: ${dest}\n`);
+for (const m of rows) console.log(`${status(m)} ${m.kind.padEnd(15)} ${gb(m.size).padStart(9)}  ${path.relative(root, m.path)}${m.real !== path.resolve(m.path) ? '  -> ' + m.real : ''}${m.fits ? '' : '   [' + m.note + ']'}`);
+const todo = rows.filter(m => m.fits && (link ? status(m) === 'STRAY  ' : status(m) !== 'OK     '));
+console.log(`\n${rows.filter(m => status(m) === 'OK     ').length} usable checkpoint(s) stored in the checkpoints folder, ${todo.length} to bring in (STRAY = not visible to ComfyUI, LINKED = visible via symlink).`);
+if (!todo.length) process.exit(0);
+if (!apply) { console.log('Dry run. Re-run with --apply to MOVE them into the checkpoints folder, or --link to only symlink the stray ones (originals stay put).'); process.exit(0); }
+
 fs.mkdirSync(dest, { recursive: true });
-for (const r of stray) {
-  const to = path.join(dest, path.basename(r.f));
-  if (fs.existsSync(to)) { console.log(`skip (name exists): ${path.basename(r.f)}`); continue; }
-  try { if (link) { fs.symlinkSync(r.f, to); console.log(`linked: ${to} -> ${r.f}`); } else { fs.renameSync(r.f, to); console.log(`moved: ${r.f} -> ${to}`); } }
-  catch (e) { console.log(`could not move ${r.f}: ${e.code === 'EXDEV' ? 'different filesystem; move it manually' : e.message}`); }
+for (const m of todo) {
+  try {
+    if (link || hfCache(m)) { const n = linkIntoCheckpoints(m); console.log(`linked${link ? '' : ' (HF cache, not moved)'}: ${n} -> ${m.real}`); continue; }
+    let to = path.join(dest, path.basename(m.real));
+    if (m.inCk) { // checkpoints/<name> is a symlink to the real file: put the real file there instead
+      to = path.join(dest, m.name);
+      if (!fs.lstatSync(to).isSymbolicLink()) { console.log(`skip (unexpected, not a symlink): ${to}`); continue; }
+      fs.unlinkSync(to);
+    } else if (fs.existsSync(to) || isLink(to)) { console.log(`skip (name already used in checkpoints folder): ${path.basename(to)}`); continue; }
+    try { fs.renameSync(m.real, to); }
+    catch (e) { if (m.inCk) fs.symlinkSync(m.real, to); throw e; } // restore the link we removed
+    fs.symlinkSync(to, m.real); // leave a pointer at the old location
+    console.log(`moved: ${m.real} -> ${to}  (symlink left at old path)`);
+  } catch (e) { console.log(`could not move ${m.real}: ${e.code === 'EXDEV' ? 'different filesystem; move it manually' : e.message}`); }
 }
-console.log('Done. Refresh ComfyUI (press r in its UI) so it re-indexes, then reopen the Visuals step.');
+function isLink(f) { try { return fs.lstatSync(f).isSymbolicLink(); } catch { return false; } }
+console.log('Done. ComfyUI picks up folder changes on its next model list; reopen the Visuals step.');

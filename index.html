@@ -381,13 +381,10 @@ canvas{width:100%;display:block;}
   <div id="ai-box" style="display:none;">
     <div class="notice" id="ai-status">Checking ComfyUI...</div>
     <div class="row">
-      <div class="field-group" style="flex:2;">
-        <div class="field-label">Quality / speed</div>
-        <select id="ai-preset"></select>
-      </div>
-      <div class="field-group" style="flex:2;">
-        <div class="field-label">Model (checkpoint)</div>
-        <select id="ai-model" onchange="try{localStorage.setItem('ai_model',this.value)}catch(e){}"></select>
+      <div class="field-group" style="flex:3;">
+        <div class="field-label">Model (settings are chosen automatically)</div>
+        <select id="ai-model" onchange="try{localStorage.setItem('ai_model',this.value)}catch(e){} showAiSettings()"></select>
+        <div id="ai-settings" style="font-size:11px;color:var(--text3);margin-top:4px;"></div>
       </div>
       <div class="field-group">
         <div class="field-label">Style</div>
@@ -1390,25 +1387,39 @@ async function updateImgSourceUI(){
   document.getElementById('ai-box').style.display=src==='ai'?'':'none';
   document.getElementById('stock-box').style.display=src==='ai'?'none':'';
   if(src!=='ai') return;
-  const st=document.getElementById('ai-status'), sel=document.getElementById('ai-preset');
+  const st=document.getElementById('ai-status');
   const h=await aiHealth(true);
   if(!h.ok){ st.innerHTML=`<span style="color:var(--red)">${esc(h.error||'ComfyUI not reachable')}</span>`; document.getElementById('ai-gen-btn').disabled=true; return; }
-  const prev=sel.value||(()=>{try{return localStorage.getItem('ai_preset');}catch(e){return '';}})()||h.default;
-  // only list presets whose checkpoint is actually installed; if none match, offer all as "settings only" (pick a model on the right)
-  const usable=h.presets.filter(p=>p.available), shown=usable.length?usable:h.presets;
-  sel.innerHTML=shown.map(p=>`<option value="${p.id}">${esc(p.label)}${usable.length?'':' (settings only)'}</option>`).join('');
-  sel.value=shown.some(p=>p.id===prev)?prev:(shown[0]||{}).id||'';
+  // every model discovered under the models folder: usable checkpoints are selectable (ones outside ComfyUI's checkpoints
+  // folder get symlinked in on first use); image models our single-file workflow can't load are shown disabled with the reason
   const msel=document.getElementById('ai-model');
   const pm=msel.value||(()=>{try{return localStorage.getItem('ai_model');}catch(e){return '';}})()||'';
-  const names=[...new Set([...(h.checkpoints||[]),...(h.diskModels||[])])].sort();
-  const mi=h.modelInfo||{}, okm=n=>(h.checkpoints||[]).includes(n)&&!(mi[n]&&mi[n].fits===false);
-  msel.innerHTML=(usable.length?'<option value="">Preset default</option>':'')+names.map(n=>`<option value="${esc(n)}"${okm(n)?'':' disabled'}>${esc(n)}${okm(n)?'':((mi[n]&&mi[n].fits===false)?' (not an all-in-one checkpoint, needs another workflow)':' (on disk, ComfyUI hasn\'t loaded it — refresh ComfyUI)')}</option>`).join('');
-  msel.value=names.includes(pm)&&okm(pm)?pm:(usable.length?'':(names.find(okm)||''));
-  const any=usable.length>0||names.some(okm);
+  const ck=h.checkpoints||[], disc=h.models||[], gb=n=>(n/1e9).toFixed(1)+' GB';
+  const good=disc.filter(m=>m.usable), known=new Set(disc.map(m=>m.name));
+  const extra=ck.filter(n=>!known.has(n)); // ComfyUI sees it but it isn't under our models folder (other model paths)
+  const bad=disc.filter(m=>!m.usable&&(m.inCk||ck.includes(m.name)||m.kind==='diffusion-only'));
+  const opt=(v,l,dis)=>`<option value="${esc(v)}"${dis?' disabled':''}>${esc(l)}</option>`;
+  const secs=s=>s.measured?s.measured.toFixed(1)+'s':'~'+Math.round(s.est)+'s est.';
+  good.sort((a,b)=>(a.settings.measured||a.settings.est)-(b.settings.measured||b.settings.est)); // fastest first
+  msel.innerHTML=(good.length?`<optgroup label="Models folder (${good.length} usable, fastest first)">`+good.map(m=>opt(m.name,`${m.name} · ${secs(m.settings)}/image · ${m.kind==='sd1'?'SD 1.5':'SDXL'} · ${gb(m.size)}${m.inCk?'':' · linked into ComfyUI on first use'}`)).join('')+'</optgroup>':'')
+    +(extra.length?'<optgroup label="Other ComfyUI checkpoints (standard SDXL settings)">'+extra.map(n=>opt(n,n)).join('')+'</optgroup>':'')
+    +(bad.length?'<optgroup label="Found but not usable with this workflow">'+bad.map(m=>opt(m.name,`${m.name} — ${m.note}`,true)).join('')+'</optgroup>':'');
+  const pickable=[...good.map(m=>m.name),...extra];
+  msel.value=[pm,h.default].find(n=>pickable.includes(n))||pickable[0]||'';
+  showAiSettings();
+  const any=pickable.length>0;
   document.getElementById('ai-gen-btn').disabled=!any;
-  st.innerHTML=any?`<strong>ComfyUI connected</strong>${h.device?' · '+esc(h.device):''} · models folder: <code>${esc(h.checkpointsDir||'')}</code>${h.dirExists?'':' (not found)'} · one image per script beat, generated one at a time. Times shown are estimates until you run <code>node imagegen/bench.mjs</code>.`
-    :`<span style="color:var(--red)">ComfyUI is running but none of the preset checkpoints are installed. Run <code>imagegen/download-models.sh</code> (see README), then reopen this step.</span>`;
+  st.innerHTML=any?`<strong>ComfyUI connected</strong>${h.device?' · '+esc(h.device):''} · ${good.length} usable model(s) found under <code>${esc(h.modelsDir||'')}</code> · one image per script beat, generated one at a time. Times marked "est." become real once a model has been used (or run <code>node imagegen/bench.mjs</code>).`
+    :`<span style="color:var(--red)">ComfyUI is running but no usable checkpoints were found under <code>${esc(h.modelsDir||'')}</code>. Run <code>imagegen/download-models.sh</code> (see README), then reopen this step.</span>`;
   refreshAiPrompts(false);
+}
+function showAiSettings(){
+  const box=document.getElementById('ai-settings'), name=document.getElementById('ai-model').value;
+  const m=((aiHealthCache&&aiHealthCache.models)||[]).find(x=>x.name===name), s=m&&m.settings;
+  if(!s){ box.textContent=name?'Settings: standard SDXL (model not under the models folder)':''; return; }
+  const [W,H]=(document.getElementById('out-res').value||'1080x1920').split('x').map(Number);
+  const r8=n=>Math.max(256,Math.round(n/8)*8), L=s.long, dim=H>W?`${r8(L*9/16)}×${r8(L)}`:W>H?`${r8(L)}×${r8(L*9/16)}`:`${r8(L*.75)}×${r8(L*.75)}`;
+  box.innerHTML=`<strong>${esc(s.label)}</strong>${s.auto==='type'?' (no specific profile — defaults for this model type)':''}: ${s.steps} steps · cfg ${s.cfg} · ${esc(s.sampler)}/${esc(s.scheduler)} · ${dim}${s.clipSkip>1?' · clip skip '+s.clipSkip:''}${s.prefix?' · adds <code>'+esc(s.prefix.trim())+'</code>':''} · ${s.measured?s.measured.toFixed(1)+'s/image measured':'~'+Math.round(s.est)+'s/image estimated'}`;
 }
 function fallbackAiPrompt(text,i,n){
   if(i===n-1) return 'friendly glowing thumbs-up and notification bell icons floating over a vibrant gradient background, 3d render, no text';
@@ -1449,7 +1460,7 @@ async function genAiBeat(i){
   const style=IMG_STYLES[document.getElementById('ai-style').value]||'';
   const prompt=`${aiPrompts[i]}, ${style}${aspect==='9:16'?', vertical composition':''}`;
   const r=await fetch('/api/imagegen/generate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-    prompt,negative_extra:document.getElementById('ai-neg').value.trim(),preset:document.getElementById('ai-preset').value,ckpt:document.getElementById('ai-model').value,aspect})});
+    prompt,negative_extra:document.getElementById('ai-neg').value.trim(),ckpt:document.getElementById('ai-model').value,aspect})});
   if(!r.ok){ let m=''; try{ m=(await r.json()).error; }catch(e){} throw new Error(m||`HTTP ${r.status}`); }
   const secs=parseFloat(r.headers.get('X-Gen-Seconds'))||0;
   const url=URL.createObjectURL(await r.blob());
@@ -1465,7 +1476,7 @@ async function generateAiImages(){
   const h=await aiHealth(true);
   if(!h.ok){ notice.innerHTML=`<span style="color:var(--red)">${esc(h.error||'ComfyUI not reachable')}</span>`; return; }
   refreshAiPrompts(false);
-  try{ localStorage.setItem('ai_preset',document.getElementById('ai-preset').value); localStorage.setItem('ai_style',document.getElementById('ai-style').value); }catch(e){}
+  try{ localStorage.setItem('ai_style',document.getElementById('ai-style').value); }catch(e){}
   loadedImages=[]; beatMeta=[]; imagesSig=beats.join('|'); renderImgGrid();
   btn.disabled=true; let total=0, done=0, fails=[];
   try{
