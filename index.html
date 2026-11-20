@@ -385,6 +385,10 @@ canvas{width:100%;display:block;}
         <div class="field-label">Quality / speed</div>
         <select id="ai-preset"></select>
       </div>
+      <div class="field-group" style="flex:2;">
+        <div class="field-label">Model (checkpoint)</div>
+        <select id="ai-model" onchange="try{localStorage.setItem('ai_model',this.value)}catch(e){}"></select>
+      </div>
       <div class="field-group">
         <div class="field-label">Style</div>
         <select id="ai-style">
@@ -1392,9 +1396,14 @@ async function updateImgSourceUI(){
   const prev=sel.value||(()=>{try{return localStorage.getItem('ai_preset');}catch(e){return '';}})()||h.default;
   sel.innerHTML=h.presets.map(p=>`<option value="${p.id}"${p.available?'':' disabled'}>${esc(p.label)}${p.available?'':' — checkpoint not installed'}</option>`).join('');
   sel.value=h.presets.some(p=>p.id===prev&&p.available)?prev:(h.presets.find(p=>p.available)||{}).id||'';
-  const any=h.presets.some(p=>p.available);
+  const msel=document.getElementById('ai-model');
+  const pm=msel.value||(()=>{try{return localStorage.getItem('ai_model');}catch(e){return '';}})()||'';
+  const names=[...new Set([...(h.checkpoints||[]),...(h.diskModels||[])])].sort();
+  msel.innerHTML='<option value="">Preset default</option>'+names.map(n=>`<option value="${esc(n)}"${(h.checkpoints||[]).includes(n)?'':' disabled'}>${esc(n)}${(h.checkpoints||[]).includes(n)?'':' (on disk, ComfyUI hasn\'t loaded it — refresh ComfyUI)'}</option>`).join('');
+  msel.value=names.includes(pm)?pm:'';
+  const any=h.presets.some(p=>p.available)||names.length>0;
   document.getElementById('ai-gen-btn').disabled=!any;
-  st.innerHTML=any?`<strong>ComfyUI connected</strong>${h.device?' · '+esc(h.device):''} · one image per script beat, generated one at a time. Times shown are estimates until you run <code>node imagegen/bench.mjs</code>.`
+  st.innerHTML=any?`<strong>ComfyUI connected</strong>${h.device?' · '+esc(h.device):''} · models folder: <code>${esc(h.checkpointsDir||'')}</code>${h.dirExists?'':' (not found)'} · one image per script beat, generated one at a time. Times shown are estimates until you run <code>node imagegen/bench.mjs</code>.`
     :`<span style="color:var(--red)">ComfyUI is running but none of the preset checkpoints are installed. Run <code>imagegen/download-models.sh</code> (see README), then reopen this step.</span>`;
   refreshAiPrompts(false);
 }
@@ -1437,7 +1446,7 @@ async function genAiBeat(i){
   const style=IMG_STYLES[document.getElementById('ai-style').value]||'';
   const prompt=`${aiPrompts[i]}, ${style}${aspect==='9:16'?', vertical composition':''}`;
   const r=await fetch('/api/imagegen/generate',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({
-    prompt,negative_extra:document.getElementById('ai-neg').value.trim(),preset:document.getElementById('ai-preset').value,aspect})});
+    prompt,negative_extra:document.getElementById('ai-neg').value.trim(),preset:document.getElementById('ai-preset').value,ckpt:document.getElementById('ai-model').value,aspect})});
   if(!r.ok){ let m=''; try{ m=(await r.json()).error; }catch(e){} throw new Error(m||`HTTP ${r.status}`); }
   const secs=parseFloat(r.headers.get('X-Gen-Seconds'))||0;
   const url=URL.createObjectURL(await r.blob());

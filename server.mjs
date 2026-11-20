@@ -57,7 +57,7 @@ http.createServer(async (req, res) => {
       let b; try { b = JSON.parse(raw); } catch { res.statusCode = 400; return res.end('bad json'); }
       if (!b.prompt || typeof b.prompt !== 'string') { res.statusCode = 400; return res.end('prompt required'); }
       try {
-        const r = await comfy.generate({ prompt: b.prompt, negative: b.negative, negativeExtra: typeof b.negative_extra === 'string' ? b.negative_extra.slice(0, 200) : '', seed: b.seed, presetId: b.preset, aspect: b.aspect });
+        const r = await comfy.generate({ prompt: b.prompt, negative: b.negative, negativeExtra: typeof b.negative_extra === 'string' ? b.negative_extra.slice(0, 200) : '', seed: b.seed, presetId: b.preset, aspect: b.aspect, ckpt: typeof b.ckpt === 'string' ? b.ckpt : '' });
         res.setHeader('Content-Type', r.type); res.setHeader('X-Gen-Seconds', r.seconds.toFixed(1)); res.setHeader('X-Gen-Size', `${r.width}x${r.height}`);
         return res.end(r.buf);
       } catch (e) { res.statusCode = e.status || 500; return shim(res).json({ error: e.message }); }

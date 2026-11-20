@@ -7,6 +7,20 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const COMFY_URL = (process.env.COMFY_URL || 'http://127.0.0.1:8188').replace(/\/+$/, '');
+// Where ComfyUI looks for checkpoints (see ComfyUI's extra_model_paths.yaml: base_path + checkpoints entry)
+export const MODELS_DIR = process.env.MODELS_DIR || '/home/jason/models';
+export const CHECKPOINTS_DIR = process.env.CHECKPOINTS_DIR || path.join(MODELS_DIR, 'Checkpoints', 'checkpoints');
+function scanModels(dir, depth = 0, base = dir, out = []) {
+  if (depth > 4) return out;
+  let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const e of ents) {
+    const f = path.join(dir, e.name);
+    let isDir = e.isDirectory(); if (e.isSymbolicLink()) { try { isDir = fs.statSync(f).isDirectory(); } catch { continue; } }
+    if (isDir) scanModels(f, depth + 1, base, out);
+    else if (/\.(safetensors|ckpt|pt|pth)$/i.test(e.name)) out.push(path.relative(base, f));
+  }
+  return out;
+}
 export const NEGATIVE_DEFAULT = 'text, letters, words, watermark, logo, signature, caption, subtitles, blurry, low quality, deformed, extra fingers, bad anatomy, cropped, frame, border';
 
 export function loadPresets() {
@@ -44,7 +58,7 @@ async function j(url, opts = {}, ms = 10000) {
 
 export async function health() {
   const cfg = loadPresets();
-  const out = { ok: false, comfy: COMFY_URL, checkpoints: [], presets: [], default: cfg.default };
+  const out = { ok: false, comfy: COMFY_URL, checkpoints: [], presets: [], default: cfg.default, checkpointsDir: CHECKPOINTS_DIR, dirExists: fs.existsSync(CHECKPOINTS_DIR), diskModels: scanModels(CHECKPOINTS_DIR).sort() };
   try {
     const s = await j(COMFY_URL + '/system_stats', {}, 4000);
     if (!s.ok) throw new Error('HTTP ' + s.status);
@@ -64,10 +78,11 @@ export function generate(opts) {
   return run;
 }
 
-async function generateNow({ prompt, negative, negativeExtra, seed, presetId, aspect }) {
+async function generateNow({ prompt, negative, negativeExtra, seed, presetId, aspect, ckpt }) {
   const cfg = loadPresets();
-  const preset = cfg.presets.find(p => p.id === (presetId || cfg.default));
+  let preset = cfg.presets.find(p => p.id === (presetId || cfg.default));
   if (!preset) throw Object.assign(new Error('Unknown preset ' + presetId), { status: 400 });
+  if (ckpt && typeof ckpt === 'string' && ckpt.length < 300 && !ckpt.includes('..')) preset = { ...preset, ckpt }; // user-chosen model, keeps the preset's steps/sampler/size
   const { width, height } = dimensions(preset, aspect);
   const wf = buildWorkflow({
     preset, prompt: String(prompt).slice(0, 1200), negative: String(negative || (NEGATIVE_DEFAULT + (negativeExtra ? ', ' + negativeExtra : ''))).slice(0, 700),
