@@ -464,7 +464,7 @@ canvas{width:100%;display:block;}
   </div>
   <div class="row">
     <div class="field-group">
-      <div class="field-label">Caption font (genre-matched)</div>
+      <div class="field-label">Caption font (auto-set by genre, change anytime)</div>
       <select id="cap-font" onchange="ensureCapFont().then(()=>{ if(window._kbRunning) startKB(); })">
         <option value="Anton">Anton — bold viral (default)</option>
         <option value="'Bebas Neue'">Bebas Neue — clean, tall</option>
@@ -1039,7 +1039,7 @@ async function genScript(){
 
   const sys=`You are a viral video scriptwriter. Generate a ${curGenre} ${cfg.label} script. Return ONLY valid JSON, no markdown, no backticks:
 {"hook":"opening line 5-10 words","body":["sentence 1","sentence 2","sentence 3","sentence 4","sentence 5","sentence 6"],"cta":"final line: ONE short question (max 12 words) about THIS specific story that makes viewers pick a side in the comments, e.g. Was he wrong? Tell me below. Do NOT mention like or subscribe, that is added automatically","title":"YT title under 60 chars","tags":["tag1","tag2","tag3","tag4","tag5"],"description":"YT description under 150 chars","visuals":["a 2-4 word concrete photo search query for the hook","one for body sentence 1","one for body sentence 2","one per remaining body sentence, in order","one for the cta"],"image_prompts":["one vivid image-generation prompt per beat in the same order as visuals: concrete subject + setting + mood + lighting + camera angle, under 40 words, fictional generic people only, no text/letters/logos/real names"]}
-Tone: ${curGenre}. Script fits ${cfg.dur} seconds spoken at normal pace. Return JSON only.`;
+Tone: ${curGenre}. Style guide for this tone: ${(GENRES[curGenre]||{}).guide||''}\nScript fits ${cfg.dur} seconds spoken at normal pace. Return JSON only.`;
 
   const userMsg=`Story: "${selPost.title}"\nDetails: ${selPost.selftext?selPost.selftext.slice(0,400):'(no body)'}`+(selPost.score!=null?`\nScore: ${selPost.score}`:'');
 
@@ -2099,11 +2099,25 @@ document.querySelectorAll('#preset-pills .pill').forEach(b=>{
   b.onclick=()=>{ document.querySelectorAll('#preset-pills .pill').forEach(x=>x.classList.remove('active')); b.classList.add('active'); curPreset=b.dataset.p; syncPreset(); };
 });
 document.querySelectorAll('#genre-pills .pill').forEach(b=>{
-  b.onclick=()=>{ document.querySelectorAll('#genre-pills .pill').forEach(x=>x.classList.remove('active')); b.classList.add('active'); curGenre=b.dataset.g; syncPreset(); };
+  b.onclick=()=>{ document.querySelectorAll('#genre-pills .pill').forEach(x=>x.classList.remove('active')); b.classList.add('active'); curGenre=b.dataset.g; syncPreset(); applyGenreStyle(); };
 });
 document.querySelectorAll('#platform-pills .pill').forEach(b=>{
   b.onclick=()=>{ document.querySelectorAll('#platform-pills .pill').forEach(x=>x.classList.remove('active')); b.classList.add('active'); };
 });
+const GENRES={
+  dramatic:{font:'Anton',color:'#ffffff',guide:'Short, punchy sentences. Build tension and withhold the single most shocking fact until the second-to-last beat. No jokes. Present tense where possible. Every beat should raise the stakes.'},
+  comedic:{font:'Bangers',color:'#FFD700',guide:'Dry, sarcastic, exaggerated delivery. One clear joke or punchline per beat, escalating absurdity, deadpan understatement of the outrageous parts. End the body on the funniest line. Never mock real victims or vulnerable people.'},
+  educational:{font:'Montserrat',color:'#ffffff',guide:'Calm, clear and authoritative. State what happened, then explain WHY people act this way, then give one practical takeaway the viewer can use. Plain words, no slang, no cliffhanger tricks.'},
+  storytelling:{font:'Lobster',color:'#ffffff',guide:'Warm narrator telling the story in strict chronological order, as if to a friend. Vivid concrete details (a place, an object, a line of dialogue). Smooth transitions between beats. Land the ending on the emotional turn.'},
+  reaction:{font:"'Luckiest Guy'",color:'#00FF88',guide:'First person: you are reacting to this post live. Give your own opinions ("Okay, no way...", "Here is what gets me..."). Quote one short line from the post, then react to it. Take a clear side so viewers want to argue in the comments. Add your own take instead of only retelling the story.'}
+};
+function applyGenreStyle(){
+  const g=GENRES[curGenre]; if(!g) return;
+  const f=document.getElementById('cap-font'), c=document.getElementById('cap-color');
+  if(f&&[...f.options].some(o=>o.value===g.font)) f.value=g.font;
+  if(c&&[...c.options].some(o=>o.value===g.color)) c.value=g.color;
+  if(typeof ensureCapFont==='function') ensureCapFont().then(()=>{ if(window._kbRunning) startKB(); });
+}
 function syncPreset(){ const cfg=presets[curPreset]; document.getElementById('sb-preset').textContent=cfg.label+' · '+curGenre; if(document.getElementById('out-res').value) document.getElementById('out-res').value=cfg.res; }
 
 loadVoices();
