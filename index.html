@@ -1939,9 +1939,14 @@ async function loadVideoList(force){
     if(!up) throw new Error('No channel found for this account');
     const pl=await ytData('playlistItems',{part:'snippet',playlistId:up,maxResults:'50'});
     const cur=sel.value||window._lastVideoId||'';
+    window._vstats={};
+    try{
+      const ids=(pl.items||[]).map(i=>i.snippet.resourceId.videoId).join(',');
+      if(ids){ const vs=await ytData('videos',{part:'statistics',id:ids,maxResults:'50'}); (vs.items||[]).forEach(v=>{ window._vstats[v.id]=v.statistics; }); }
+    }catch(e){ console.warn('video stats',e); }
     sel.innerHTML='<option value="">All videos (whole channel)</option>'+(pl.items||[]).map(i=>{
       const id=i.snippet.resourceId.videoId, d=(i.snippet.publishedAt||'').slice(0,10);
-      return `<option value="${id}">${esc(i.snippet.title)} · ${d}</option>`; }).join('');
+      const st=window._vstats[id]; return `<option value="${id}">${esc(i.snippet.title)} · ${d}${st?` · ${Number(st.viewCount||0).toLocaleString()} views`:''}</option>`; }).join('');
     sel.value=[...sel.options].some(o=>o.value===cur)?cur:'';
     sel.dataset.loaded='1';
     document.getElementById('an-vinfo').textContent=(pl.items||[]).length+' recent uploads loaded';
@@ -1998,7 +2003,8 @@ async function loadAnalytics(){
     } else rc.innerHTML='<div style="width:100%;text-align:center;color:var(--text3);font-size:11px;align-self:center">Upload a video from this app to see its retention curve</div>';
 
     const vi=document.getElementById('an-vinfo');
-    if(vsel){ try{ const a=await ytReport({startDate:'2020-01-01',endDate:new Date().toISOString().slice(0,10),metrics:'averageViewDuration,averageViewPercentage',filters:'video=='+vsel}); const r0=a.rows&&a.rows[0]; vi.textContent=r0?`This video — avg view ${Math.round(r0[0])}s · ${Math.round(r0[1])}% viewed on average`:'No data for this video yet'; }catch(e){ vi.textContent=''; } }
+    if(vsel){ try{ const a=await ytReport({startDate:'2020-01-01',endDate:new Date().toISOString().slice(0,10),metrics:'averageViewDuration,averageViewPercentage',filters:'video=='+vsel}); const r0=a.rows&&a.rows[0]; const pub=(window._vstats||{})[vsel]; const pv=pub?`Public views: ${Number(pub.viewCount||0).toLocaleString()} · likes ${Number(pub.likeCount||0).toLocaleString()} · comments ${Number(pub.commentCount||0).toLocaleString()}. `:''; vi.textContent=pv+(r0?`Avg view ${Math.round(r0[0])}s · ${Math.round(r0[1])}% viewed on average`:'Analytics report has no data for this video yet (it lags 1-3 days behind Studio)'); }catch(e){ vi.textContent=''; } }
+    if(!vsel&&window._vstats){ const tot=Object.values(window._vstats).reduce((n,x)=>n+Number(x.viewCount||0),0); if(tot) vi.textContent=`Public lifetime views across your ${Object.keys(window._vstats).length} recent uploads: ${tot.toLocaleString()}. The cards below come from the Analytics report, which lags Studio by 1-3 days.`; }
     window._analytics={rows:last,rev,v,wt,subs};
     gs('Analytics loaded','ok');
   }catch(e){
