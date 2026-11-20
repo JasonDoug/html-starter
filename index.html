@@ -753,24 +753,46 @@ function parseRedditAtom(xml){
   });
 }
 function tfetch(u,ms=12000){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms);return fetch(u,{signal:c.signal}).finally(()=>clearTimeout(t));}
-async function fetchRedditArchive(clean,sort,time){
-  const dayMs=864e5, iso=ms=>new Date(Date.now()-ms).toISOString().slice(0,10);
-  const p=new URLSearchParams({subreddit:clean,limit:'100',sort:'desc'});
-  if(sort==='hot'||sort==='rising') p.set('after',iso(dayMs));
-  else if(sort==='top'){ const d={hour:1,day:1,week:7,month:30,year:365,all:365}[time]||7; p.set('after',iso(d*dayMs)); }
-  const qs=p.toString();
+async function arcticPage(qs){
   const urls=[`/api/arctic?${qs}`,`https://arctic-shift.photon-reddit.com/api/posts/search?${qs}`];
-  let j=null,err='';
+  let err='';
   for(const u of urls){
     try{
       const r=await tfetch(u,25000);
       if(!r.ok){ err=`HTTP ${r.status}`; continue; }
-      const t=await r.text(); try{ j=JSON.parse(t); }catch(e){ err='not JSON (is /api/arctic served by server.mjs?)'; continue; }
-      break;
+      const t=await r.text(); let j; try{ j=JSON.parse(t); }catch(e){ err='not JSON (is /api/arctic served by server.mjs?)'; continue; }
+      return j.data||j||[];
     }catch(e){ err=e.message; }
   }
-  if(!j) throw new Error('archive: '+err);
-  const rows=(j.data||j||[]).filter(x=>x&&x.title&&!/^\[(removed|deleted)\]$/.test(x.selftext||'')&&!x.stickied);
+  throw new Error('archive: '+err);
+}
+async function fetchRedditArchive(clean,sort,time){
+  const hr=36e5, ts=ms=>new Date(Date.now()-ms).toISOString().slice(0,19);
+  const base={subreddit:clean,limit:'100',sort:'desc'};
+  // The archive can't sort by score and returns the newest posts first, so a busy sub's latest 100 posts only span a few hours.
+  // For "top" we slice the chosen window into pieces, take the newest 100 of each, then rank the combined set by score.
+  let spans=[[0,24*hr]];
+  if(sort==='top'){
+    const win={hour:1,day:24,week:168,month:720,year:8760,all:8760}[time]||168;
+    const n={hour:1,day:4,week:7,month:10,year:12,all:12}[time]||7;
+    spans=Array.from({length:n},(_,i)=>[win*hr*i/n,win*hr*(i+1)/n]);
+  }
+  let rows=[],lastErr=null;
+  const run=async len=>{
+    const t=ms=>new Date(Date.now()-ms).toISOString().slice(0,len);
+    return Promise.all(spans.map(([a,b])=>{
+      const p=new URLSearchParams(base);
+      p.set('after',t(b)); if(a>0) p.set('before',t(a));
+      return arcticPage(p.toString()).catch(e=>{ lastErr=e; return []; });
+    }));
+  };
+  let pages=await run(19);
+  if(!pages.flat().length) pages=await run(10); // fall back to date-only bounds if the API rejects time-of-day
+  const seen=new Set();
+  pages.flat().forEach(x=>{ if(x&&x.id&&!seen.has(x.id)){ seen.add(x.id); rows.push(x); } });
+  if(!rows.length && lastErr) throw lastErr;
+  const j=rows;
+  rows=j.filter(x=>x&&x.title&&!/^\[(removed|deleted)\]$/.test(x.selftext||'')&&!x.stickied);
   if(!rows.length) throw new Error(`archive: no posts found for r/${clean} in that window`);
   const now=Date.now()/1000, age=x=>Math.max(0.1,(now-x.created_utc)/3600);
   const rank={new:x=>x.created_utc,top:x=>x.score||0,hot:x=>(x.score||0)/Math.pow(age(x)+2,1.5),rising:x=>(x.score||0)/(age(x)+1)}[sort]||(x=>x.created_utc);
