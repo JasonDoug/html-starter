@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Reddit Video Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Bangers&family=Bebas+Neue&family=Luckiest+Guy&family=Permanent+Marker&family=Montserrat:wght@900&family=Oswald:wght@700&family=Lobster&family=Fredoka:wght@700&family=Special+Elite&display=swap">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.9.0/dist/tabler-icons.min.css">
 <!-- FFmpeg.wasm — loads ~30MB WASM binary on first assemble, then cached -->
 <!-- FFmpeg.wasm single-thread (no SharedArrayBuffer/COOP needed) -->
@@ -459,12 +461,18 @@ canvas{width:100%;display:block;}
   <div class="row">
     <div class="field-group">
       <div class="field-label">Caption font (genre-matched)</div>
-      <select id="cap-font">
-        <option value="Impact">Impact — dramatic/meme</option>
-        <option value="Georgia">Georgia — storytelling</option>
-        <option value="'Courier New'">Courier New — documentary</option>
-        <option value="'Arial Black'">Arial Black — energetic</option>
-        <option value="Palatino">Palatino — educational</option>
+      <select id="cap-font" onchange="ensureCapFont().then(()=>{ if(window._kbRunning) startKB(); })">
+        <option value="Anton">Anton — bold viral (default)</option>
+        <option value="'Bebas Neue'">Bebas Neue — clean, tall</option>
+        <option value="Bangers">Bangers — comic / reaction</option>
+        <option value="'Luckiest Guy'">Luckiest Guy — playful</option>
+        <option value="'Permanent Marker'">Permanent Marker — handwritten</option>
+        <option value="Montserrat">Montserrat Black — modern</option>
+        <option value="Oswald">Oswald — news / drama</option>
+        <option value="Lobster">Lobster — storytelling</option>
+        <option value="Fredoka">Fredoka — friendly / rounded</option>
+        <option value="'Special Elite'">Special Elite — typewriter / documentary</option>
+        <option value="Impact">Impact (system font, if installed)</option>
       </select>
     </div>
     <div class="field-group">
@@ -1575,6 +1583,12 @@ function initCanvas(){
 function easeOutBack(x){ const c1=1.70158,c3=c1+1; return 1+c3*Math.pow(x-1,3)+c1*Math.pow(x-1,2); }
 const KB_FX=['zoom-in','pan-lr','zoom-out','pan-rl'];
 
+const CAP_WEIGHT={Anton:400,"'Bebas Neue'":400,Bangers:400,"'Luckiest Guy'":400,"'Permanent Marker'":400,Montserrat:900,Oswald:700,Lobster:400,Fredoka:700,"'Special Elite'":400};
+async function ensureCapFont(){
+  const f=document.getElementById('cap-font').value, w=CAP_WEIGHT[f]||700;
+  try{ await Promise.race([document.fonts.load(`${w} 48px ${f}`,'ABCabc'),new Promise(r=>setTimeout(r,6000))]); }catch(e){}
+  return {family:f,weight:w};
+}
 function buildRenderState(){
   const imgs=loadedImages.filter(Boolean);
   let words;
@@ -1602,7 +1616,7 @@ function buildRenderState(){
     imgs,words,chunks,w2c,duration,slideLen,segs,
     fx:document.getElementById('kb-fx').value,
     trans:(document.getElementById('trans').value||'Crossfade'),
-    font:document.getElementById('cap-font').value,
+    font:document.getElementById('cap-font').value, fontWeight:CAP_WEIGHT[document.getElementById('cap-font').value]||700,
     color, hl:color.toLowerCase()==='#ffd700'?'#00FF88':'#FFD700',
     beat:document.getElementById('beat').value,
     bpm:parseFloat(document.getElementById('bpm-val').value)||120,
@@ -1664,7 +1678,7 @@ function renderFrame(ctx,W,H,t,S){
   if(wi>=0 && t<S.words[S.words.length-1].t+1.2){
     const chunk=S.chunks[S.w2c[wi]];
     const fs=Math.round(Math.min(W,H)*0.085);
-    ctx.font=`bold ${fs}px ${S.font}, sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.font=`${S.fontWeight||700} ${fs}px ${S.font}, Impact, sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
     ctx.lineJoin='round';
     const gap=fs*0.55, widths=chunk.map(i=>ctx.measureText(S.words[i].word.toUpperCase()).width);
     const total=widths.reduce((a,b)=>a+b,0)+gap*(chunk.length-1), maxW=W*0.88;
@@ -1690,8 +1704,10 @@ function renderFrame(ctx,W,H,t,S){
   ctx.fillStyle=S.hl; ctx.fillRect(0,H-Math.max(4,H*0.004),W*Math.min(1,t/S.duration),Math.max(4,H*0.004));
 }
 
-function startKB(){
-  stopKB();
+async function startKB(){
+  stopKB(); window._kbRunning=true;
+  await ensureCapFont();
+  if(!window._kbRunning) return;
   const cv=document.getElementById('cvs'), ctx=cv.getContext('2d');
   const S=buildRenderState();
   const loopLen=Math.max(4,Math.min(S.duration+0.5,120));
@@ -1705,7 +1721,7 @@ function startKB(){
   frame();
   mark('vis',true);
 }
-function stopKB(){ if(kbRaf){ cancelAnimationFrame(kbRaf); kbRaf=null; } }
+function stopKB(){ window._kbRunning=false; if(kbRaf){ cancelAnimationFrame(kbRaf); kbRaf=null; } }
 function addSlot(){ const s=document.getElementById('slots'); const d=document.createElement('div'); d.style.cssText='width:60px;height:60px;border:1px dashed var(--border2);border-radius:var(--radius);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text3);font-size:11px;'; d.innerHTML='<i class="ti ti-plus" style="font-size:18px"></i>'; s.appendChild(d); }
 
 let ffmpegInstance = null;
@@ -1764,6 +1780,7 @@ async function assemble(){
       await runImages();
     }
     setStep('as0','spin'); addLog('[1] Preparing renderer...'); gs('Preparing...','spin');
+    await ensureCapFont();
     const S=buildRenderState();
     const [W,H]=document.getElementById('out-res').value.split('x').map(Number);
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
